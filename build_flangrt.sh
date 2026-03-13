@@ -25,7 +25,7 @@ fi
 
 # Find flang headers
 FLANG_INCLUDE=""
-for d in /opt/homebrew/Cellar/flang/*/include /usr/local/include /usr/include; do
+for d in /opt/homebrew/Cellar/flang/*/include /usr/lib/llvm-*/include /usr/local/include /usr/include; do
   if [ -f "$d/flang/ISO_Fortran_binding.h" ]; then
     FLANG_INCLUDE="$d"
     break

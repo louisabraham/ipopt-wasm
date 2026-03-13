@@ -31,22 +31,27 @@ jobs:
 
       - name: Install flang
         run: |
-          # Install LLVM 22 with flang
+          # Install LLVM 22 with flang from apt.llvm.org
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-          echo "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-22 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+          CODENAME=$(lsb_release -cs)
+          echo "deb http://apt.llvm.org/$CODENAME/ llvm-toolchain-$CODENAME-22 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          sudo apt-get install -y flang-22 || true
-          # Symlink tools
-          for tool in flang-new tco fir-opt; do
-            if [ -f "/usr/bin/${tool}-22" ]; then
-              sudo ln -sf "/usr/bin/${tool}-22" "/usr/bin/${tool}"
-            elif [ -f "/usr/lib/llvm-22/bin/${tool}" ]; then
-              sudo ln -sf "/usr/lib/llvm-22/bin/${tool}" "/usr/bin/${tool}"
+          sudo apt-get install -y flang-22 libflang-22-dev || true
+          # Symlink all llvm-22 tools
+          for f in /usr/lib/llvm-22/bin/*; do
+            name=$(basename "$f")
+            sudo ln -sf "$f" "/usr/bin/$name" 2>/dev/null || true
+            # Also create version-stripped symlink
+            base="${name%-22}"
+            if [ "$base" != "$name" ]; then
+              sudo ln -sf "$f" "/usr/bin/$base" 2>/dev/null || true
             fi
           done
-          flang-new --version || true
-          which tco || echo "tco not found - trying alternative paths"
-          ls /usr/lib/llvm-22/bin/ | grep -i "tco\|fir" || true
+          flang-new --version
+          which tco && echo "tco found" || echo "tco not found"
+          which fir-opt && echo "fir-opt found" || echo "fir-opt not found"
+          # Show where headers are
+          find /usr/lib/llvm-22/include -name "ISO_Fortran_binding.h" 2>/dev/null || true
 
       - name: Setup dependencies
         run: |
