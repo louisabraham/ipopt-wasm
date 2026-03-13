@@ -1,0 +1,96 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+  pages: write
+
+jobs:
+  build:
+    name: Build Ipopt WASM
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wabt
+
+      - name: Install Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.73
+
+      - name: Install flang
+        run: |
+          # Install LLVM 22 with flang
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          echo "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-22 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y flang-22 || true
+          # Symlink tools
+          for tool in flang-new tco fir-opt; do
+            if [ -f "/usr/bin/${tool}-22" ]; then
+              sudo ln -sf "/usr/bin/${tool}-22" "/usr/bin/${tool}"
+            elif [ -f "/usr/lib/llvm-22/bin/${tool}" ]; then
+              sudo ln -sf "/usr/lib/llvm-22/bin/${tool}" "/usr/bin/${tool}"
+            fi
+          done
+          flang-new --version || true
+          which tco || echo "tco not found - trying alternative paths"
+          ls /usr/lib/llvm-22/bin/ | grep -i "tco\|fir" || true
+
+      - name: Setup dependencies
+        run: |
+          chmod +x setup.sh build.sh build_flangrt.sh link.sh
+          bash setup.sh
+
+      - name: Build flang runtime
+        run: bash build_flangrt.sh
+
+      - name: Build MUMPS + LAPACK + Ipopt
+        run: bash build.sh
+
+      - name: Link and patch
+        run: bash link.sh
+
+      - name: Assemble site
+        run: |
+          mkdir _site
+          cp build/out/libipopt.a _site/
+          cp build/out/libmumps.a _site/
+          cp build/out/liblapack.a _site/
+          cp build/out/libflangrt.a _site/
+          # Create index
+          cat > _site/index.html << 'HTML'
+          <!DOCTYPE html>
+          <html>
+          <head><title>Ipopt WASM</title></head>
+          <body>
+          <h1>Ipopt compiled to WebAssembly</h1>
+          <p>Static libraries for linking Ipopt+MUMPS in WebAssembly (wasm64/MEMORY64):</p>
+          <ul>
+          <li><a href="libipopt.a">libipopt.a</a> - Ipopt optimizer</li>
+          <li><a href="libmumps.a">libmumps.a</a> - MUMPS sparse solver</li>
+          <li><a href="liblapack.a">liblapack.a</a> - BLAS/LAPACK</li>
+          <li><a href="libflangrt.a">libflangrt.a</a> - Fortran runtime</li>
+          </ul>
+          </body>
+          </html>
+          HTML
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
