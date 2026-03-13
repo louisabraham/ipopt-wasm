@@ -82,6 +82,8 @@ compile_fortran() {
       -e 's|^target triple = .*|target triple = "wasm64-unknown-emscripten"|' \
       -e 's/i64 ptrtoint (ptr @[^ ]* to i64)/i64 0/g' \
       -e 's/ captures(none)//g' \
+      -e 's/ nocreateundeforpoison//g' \
+      -e 's/ noaliasing//g' \
       "$ll_native" > "$ll_wasm"
 
   # Step 4: Compile to wasm32 object
@@ -383,6 +385,8 @@ compile_lapack_fortran() {
       -e 's|^target triple = .*|target triple = "wasm64-unknown-emscripten"|' \
       -e 's/i64 ptrtoint (ptr @[^ ]* to i64)/i64 0/g' \
       -e 's/ captures(none)//g' \
+      -e 's/ nocreateundeforpoison//g' \
+      -e 's/ noaliasing//g' \
       "$ll_native" > "$ll_wasm"
   emcc -c -O2 -sMEMORY64=1 "$ll_wasm" -o "$obj" 2>&1
 }
