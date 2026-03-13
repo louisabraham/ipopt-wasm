@@ -81,6 +81,7 @@ compile_fortran() {
       -e 's|^target datalayout = .*|target datalayout = "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"|' \
       -e 's|^target triple = .*|target triple = "wasm64-unknown-emscripten"|' \
       -e 's/i64 ptrtoint (ptr @[^ ]* to i64)/i64 0/g' \
+      -e 's/ captures(none)//g' \
       "$ll_native" > "$ll_wasm"
 
   # Step 4: Compile to wasm32 object
@@ -381,6 +382,7 @@ compile_lapack_fortran() {
       -e 's|^target datalayout = .*|target datalayout = "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"|' \
       -e 's|^target triple = .*|target triple = "wasm64-unknown-emscripten"|' \
       -e 's/i64 ptrtoint (ptr @[^ ]* to i64)/i64 0/g' \
+      -e 's/ captures(none)//g' \
       "$ll_native" > "$ll_wasm"
   emcc -c -O2 -sMEMORY64=1 "$ll_wasm" -o "$obj" 2>&1
 }
