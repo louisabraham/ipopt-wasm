@@ -142,12 +142,21 @@ Full list: [Ipopt options documentation](https://coin-or.github.io/Ipopt/OPTIONS
 
 ## Performance
 
-Optimal control benchmark (N=8000, 16001 variables, 8001 constraints):
+Benchmarked on a discretized optimal control problem: minimize ∑u² subject to dynamics x_{i+1} = x_i + h·(x_i² + u_i), with x_0=1, x_N=0. See [`bench.mjs`](https://github.com/louisabraham/ipopt-wasm/blob/main/npm/bench.mjs) and [`test/bench.cpp`](https://github.com/louisabraham/ipopt-wasm/blob/main/test/bench.cpp).
 
-| Platform | Time | Relative |
-|----------|------|----------|
-| Native arm64 (Apple M4) | 72ms | 1x |
-| WebAssembly (Node.js) | 216ms | 3x |
+```bash
+# Run the benchmark
+node bench.mjs 8000
+```
+
+| Problem size | Platform | Time |
+|---|---|---|
+| HS071 (4 vars) | Native arm64 (Apple M4) | 5ms |
+| HS071 (4 vars) | WebAssembly (Node.js) | 43ms |
+| Optimal control N=8000 (16001 vars, 8001 constraints) | Native arm64 (Apple M4) | 72ms |
+| Optimal control N=8000 (16001 vars, 8001 constraints) | WebAssembly (Node.js) | 216ms |
+
+WebAssembly overhead is **~3x** on compute-bound problems. The small-problem overhead (~9x) is dominated by wasm module initialization.
 
 ## License
 
