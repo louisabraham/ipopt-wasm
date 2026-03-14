@@ -6,7 +6,7 @@ Ipopt (Interior Point Optimizer) + MUMPS sparse solver compiled to WebAssembly.
 
 ## Pre-built libraries
 
-The `dist/` directory contains pre-built static libraries (wasm32):
+The `dist/` directory contains pre-built wasm32 static libraries (compiled with `-fPIC`):
 
 | Library | Contents |
 |---------|----------|
@@ -21,7 +21,7 @@ The `dist/` directory contains pre-built static libraries (wasm32):
 Link against these libraries with Emscripten:
 
 ```bash
-emcc -sALLOW_MEMORY_GROWTH=1 -sERROR_ON_UNDEFINED_SYMBOLS=0 \
+emcc -fPIC -sALLOW_MEMORY_GROWTH=1 -sERROR_ON_UNDEFINED_SYMBOLS=0 \
   your_program.cpp wasm32_bridges.c \
   libipopt.a libmumps.a liblapack.a libflangrt.a \
   -o output.js
@@ -37,7 +37,7 @@ See `test/hs071.cpp` for an example (Hock-Schittkowski problem #71).
 brew install emscripten flang wabt
 ```
 
-Versions used: Emscripten 5.0.2, flang 22.1.1 (LLVM 22), wabt (for wasm2wat/wat2wasm).
+Versions used: Emscripten 5.0.2, flang 22.1.1 (LLVM 22), wabt (for wasm validation).
 
 ### Build pipeline
 
@@ -49,15 +49,14 @@ Fortran source
 FIR (Fortran Intermediate Representation, MLIR dialect)
     ↓  fir-opt --external-name-interop
 FIR with C-interop name mangling (Add_ convention)
-    ↓  tco --target=x86_64-unknown-linux-gnu
-LLVM IR (x86_64)
-    ↓  sed (retarget triple, fix common linkage, strip unsupported attrs)
-LLVM IR (wasm64)
-    ↓  emcc -sMEMORY64=1
+    ↓  tco --target=i686-unknown-linux-gnu
+LLVM IR (i686, 32-bit pointers)
+    ↓  sed (retarget to wasm32, fix common linkage, strip attrs, fix malloc)
+    ↓  fix_malloc.py (patch malloc(i64) → malloc(i32))
+LLVM IR (wasm32)
+    ↓  emcc -fPIC
 WebAssembly object (.o)
 ```
-
-After linking, 21 LLVM wasm64 backend codegen bugs are patched via `fix_wat_targeted.py`, which converts the binary to WAT text format, inserts `i32.wrap_i64` instructions where `lround`/`lroundf` return values feed into i32 locals, and converts back.
 
 ### Build steps
 
@@ -65,24 +64,26 @@ After linking, 21 LLVM wasm64 backend codegen bugs are patched via `fix_wat_targ
 # 1. Download dependencies (Ipopt, MUMPS, LAPACK source)
 bash setup.sh
 
-# 2. Build flang Fortran runtime for wasm64
+# 2. Build flang Fortran runtime for wasm32
 bash build_flangrt.sh
 
 # 3. Compile MUMPS + BLAS/LAPACK + Ipopt
 bash build.sh
 
-# 4. Link, patch WAT, validate, test
+# 4. Link, validate, test
 bash link.sh
 ```
 
 ### Key workarounds
 
-- **flang i686 target bug**: `unrealized_conversion_cast` on assumed-size arrays prevents using 32-bit target. Workaround: use x86_64 target + wasm64/MEMORY64.
-- **LLVM wasm64 codegen bugs**: 21 functions have i32/i64 type mismatches from `lround`/`lroundf` returning i64 on wasm64. Fixed by post-processing the WAT.
-- **Fortran hidden char lengths**: x86_64 ABI passes character string lengths as `i64`. Ipopt's BLAS/LAPACK declarations patched to use `long long` instead of `int`.
+- **flang can't target wasm**: Fortran → FIR → `tco` (i686 LLVM IR) → retarget wasm32 via sed.
+- **flang i686 `unrealized_conversion_cast` bug**: `flang-new --target=i686` crashes on assumed-size arrays. Workaround: use `flang-new -fc1 -emit-fir` (target-independent) then `tco --target=i686` (separate lowering, avoids the bug).
+- **`malloc(i64)` in Fortran IR**: `tco` always generates 64-bit malloc sizes. Fixed by `fix_malloc.py` which inserts `trunc i64 to i32` before each call.
+- **`ptrtoint` in static initializers**: Fortran type descriptors use `ptrtoint ptr to i64` which is unsupported on wasm32. Zeroed out in the IR (runtime recalculates).
+- **Fortran descriptor ABI**: `CFI_index_t` and `elem_len` are 64-bit in flang's IR but 32-bit in the C runtime. The flang runtime is compiled with a patched `ISO_Fortran_binding.h` using `int64_t`/`uint64_t` for these fields.
+- **Fortran hidden char lengths**: flang generates `i64` for Fortran CHARACTER string length parameters. `wasm32_bridges.c` provides wrapper functions that accept `i64` lengths for the mismatched runtime functions.
 - **MUMPS signature mismatches**: `mpi_bcast_` and `dmumps_root_solve_` have caller/callee argument count differences fixed in the LLVM IR.
-- **`ptrtoint` in static initializers**: Fortran type descriptors use `ptrtoint ptr to i64` which is unsupported on wasm32. Zeroed out (runtime recalculates).
-- **Fortran descriptor ABI**: `CFI_index_t` (ptrdiff_t) and `elem_len` (size_t) are 64-bit in flang's IR but 32-bit on wasm32. Using wasm64 makes them match natively.
+- **`-fPIC`**: Required for Pyodide/shared library linking.
 
 ### Performance
 
@@ -92,6 +93,5 @@ On Hock-Schittkowski problem #71 (4 variables):
 |----------|------|
 | Native arm64 (Apple M4) | 5ms |
 | WebAssembly wasm32 (Node.js) | 43ms |
-| WebAssembly wasm64 (Node.js) | 60ms |
 
-~9x overhead for wasm32, dominated by startup/initialization on this small problem.
+~9x overhead, dominated by startup/initialization on this small problem.

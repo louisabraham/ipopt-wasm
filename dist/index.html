@@ -3,7 +3,7 @@
 <head><title>Ipopt WASM</title></head>
 <body>
 <h1>Ipopt compiled to WebAssembly</h1>
-<p>Static libraries for linking Ipopt+MUMPS in WebAssembly (wasm32):</p>
+<p>Static libraries for linking Ipopt+MUMPS in WebAssembly (wasm32, compiled with -fPIC):</p>
 <ul>
 <li><a href="libipopt.a">libipopt.a</a> - Ipopt 3.14.20</li>
 <li><a href="libmumps.a">libmumps.a</a> - MUMPS 5.8.1 sparse solver</li>
@@ -11,7 +11,7 @@
 <li><a href="libflangrt.a">libflangrt.a</a> - Fortran runtime (flang-rt)</li>
 <li><a href="wasm32_bridges.c">wasm32_bridges.c</a> - Bridge functions (must compile and link)</li>
 </ul>
-<p>Built with: flang 22.1.1 + Emscripten 5.0.2</p>
+<p>Built with: flang 22.1.1 + Emscripten 5.0.2 (wasm32, -fPIC)</p>
 <p>Source: <a href="https://github.com/louisabraham/ipopt-wasm">github.com/louisabraham/ipopt-wasm</a></p>
 </body>
 </html>
