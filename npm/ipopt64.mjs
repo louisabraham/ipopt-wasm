@@ -4231,7 +4231,8 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
 
 
 // Imports from the Wasm binary.
-var _ipopt_create,
+var _set_callbacks,
+  _ipopt_create,
   _ipopt_free,
   _ipopt_str_option,
   _ipopt_num_option,
@@ -4249,6 +4250,7 @@ var _ipopt_create,
 
 
 function assignWasmExports(wasmExports) {
+  _set_callbacks = Module['_set_callbacks'] = wasmExports['set_callbacks'];
   _ipopt_create = Module['_ipopt_create'] = wasmExports['ipopt_create'];
   _ipopt_free = Module['_ipopt_free'] = wasmExports['ipopt_free'];
   _ipopt_str_option = Module['_ipopt_str_option'] = wasmExports['ipopt_str_option'];

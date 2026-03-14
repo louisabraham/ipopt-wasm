@@ -68,7 +68,7 @@ export async function solve(problem, options = {}) {
       for(let i=0;i<nele_jac;i++) H[(p>>3)+i]=v[i];
     }
     return 1;
-  }, "iipiippppp");
+  }, "iipiiiipppp");
 
   // eval_h: bool(int n, double* x, bool new_x, double obj_factor, int m, double* lambda, bool new_l, int nele, int* iR, int* jC, double* vals, void* ud)
   const eval_h_cb = M.addFunction((n_,xp,nx,of_,m_,lp,nl,ne,iR,jC,vp,ud) => {
@@ -80,7 +80,7 @@ export async function solve(problem, options = {}) {
       for(let i=0;i<nele_hess;i++) H[(p>>3)+i]=v[i];
     }
     return 1;
-  }, "iipidipiippp");
+  }, "iipidipiipppp");
 
   const ipopt = M._ipopt_create(
     n,B(x_L),B(x_U),m,B(g_L),B(g_U),nele_jac,nele_hess,
