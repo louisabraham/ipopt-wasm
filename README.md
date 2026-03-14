@@ -29,6 +29,27 @@ emcc -fPIC -sALLOW_MEMORY_GROWTH=1 -sERROR_ON_UNDEFINED_SYMBOLS=0 \
 
 See `test/hs071.cpp` for an example (Hock-Schittkowski problem #71).
 
+## Pyodide / cyipopt
+
+This project enables [cyipopt](https://github.com/mechmotum/cyipopt) to run in [Pyodide](https://pyodide.org), bringing Ipopt to the browser and any Python-in-WebAssembly environment.
+
+The [cyipopt build wheels PR](https://github.com/mechmotum/cyipopt/pull/305) uses ipopt-wasm as follows:
+
+1. The Pyodide build downloads the pre-built `.a` libraries from [GitHub Pages](https://louisabraham.github.io/ipopt-wasm/)
+2. cyipopt's Cython extension links against them during `pyodide build`
+3. The resulting `.whl` can be `pip install`'d in any Pyodide environment
+
+```python
+# In Pyodide (browser or Node.js)
+import micropip
+await micropip.install("cyipopt")
+
+import cyipopt
+# ... solve optimization problems with Ipopt + MUMPS
+```
+
+This means Ipopt — a production-grade nonlinear optimizer backed by the MUMPS sparse direct solver — can now run entirely in the browser with no server-side computation.
+
 ## How the build was produced
 
 ### Prerequisites (macOS)
