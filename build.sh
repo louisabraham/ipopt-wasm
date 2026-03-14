@@ -391,6 +391,18 @@ compile_lapack_fortran() {
   emcc -c -O2 -sMEMORY64=1 "$ll_wasm" -o "$obj" 2>&1
 }
 
+# Compile LAPACK f90 module dependencies first (before BLAS, since BLAS .f90 may use them)
+echo "--- Compiling LAPACK modules ---"
+for f in "$LAPACK_DIR"/SRC/la_constants.f90 "$LAPACK_DIR"/SRC/la_xisnan.f90; do
+  if [ -f "$f" ]; then
+    basename="$(basename "$f" .f90)"
+    if [ ! -f "$LAPACK_OBJDIR/${basename}.o" ]; then
+      echo "  F: $(basename "$f")"
+      compile_lapack_fortran "$f"
+    fi
+  fi
+done
+
 echo "--- Compiling BLAS ---"
 for f in "$LAPACK_DIR"/BLAS/SRC/*.f "$LAPACK_DIR"/BLAS/SRC/*.f90; do
   [ -f "$f" ] || continue
@@ -402,18 +414,6 @@ for f in "$LAPACK_DIR"/BLAS/SRC/*.f "$LAPACK_DIR"/BLAS/SRC/*.f90; do
   fi
 done
 echo ""
-
-# Compile LAPACK f90 module dependencies first
-echo "--- Compiling LAPACK modules ---"
-for f in "$LAPACK_DIR"/SRC/la_constants.f90 "$LAPACK_DIR"/SRC/la_xisnan.f90; do
-  if [ -f "$f" ]; then
-    basename="$(basename "$f" .f90)"
-    if [ ! -f "$LAPACK_OBJDIR/${basename}.o" ]; then
-      echo "  F: $(basename "$f")"
-      compile_lapack_fortran "$f"
-    fi
-  fi
-done
 
 echo "--- Compiling LAPACK ---"
 for f in "$LAPACK_DIR"/SRC/*.f; do
