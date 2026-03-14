@@ -152,3 +152,18 @@ On Hock-Schittkowski problem #71 (4 variables):
 | WebAssembly wasm32 (Node.js) | 43ms |
 
 ~9x overhead, dominated by startup/initialization on this small problem.
+
+## License
+
+The build scripts, JS wrapper, and glue code in this repository are licensed under the [MIT License](LICENSE).
+
+The compiled WebAssembly binary bundles the following third-party libraries under their own licenses:
+
+| Library | License |
+|---------|---------|
+| [Ipopt](https://github.com/coin-or/Ipopt) | EPL-2.0 |
+| [MUMPS](http://mumps-solver.org/) | CeCILL-C (LGPL-compatible) |
+| [LAPACK](https://github.com/Reference-LAPACK/lapack) | BSD-3-Clause |
+| [flang-rt](https://github.com/llvm/llvm-project/tree/main/flang-rt) | Apache-2.0 WITH LLVM-exception |
+
+See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for full details.
