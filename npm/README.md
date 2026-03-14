@@ -1,5 +1,7 @@
 # ipopt-wasm
 
+[![npm](https://img.shields.io/npm/v/ipopt-wasm)](https://www.npmjs.com/package/ipopt-wasm)
+
 [Ipopt](https://coin-or.github.io/Ipopt/) (Interior Point Optimizer) for JavaScript via WebAssembly. Solves large-scale nonlinear optimization problems. Includes the [MUMPS](http://mumps-solver.org/) sparse direct solver.
 
 Works in **Node.js** and **browsers** — all objective functions and constraints are defined in JavaScript.
