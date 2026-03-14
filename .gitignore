@@ -2,4 +2,5 @@ build/
 Ipopt/
 ThirdParty-Mumps/
 lapack/
+llvm-project/
 *.mod

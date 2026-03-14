@@ -1,4 +1,4 @@
-name: Build & Deploy
+name: Deploy Pages
 
 on:
   push:
@@ -10,8 +10,8 @@ permissions:
   pages: write
 
 jobs:
-  build:
-    name: Build Ipopt WASM
+  deploy:
+    name: Deploy
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -19,82 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wabt
-
-      - name: Install Emscripten
-        uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: latest
-
-      - name: Install flang
-        run: |
-          # Install LLVM 22 with flang from apt.llvm.org
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-          CODENAME=$(lsb_release -cs)
-          echo "deb http://apt.llvm.org/$CODENAME/ llvm-toolchain-$CODENAME-22 main" | sudo tee /etc/apt/sources.list.d/llvm.list
-          sudo apt-get update
-          sudo apt-get install -y flang-22 libflang-22-dev || true
-          # Symlink all llvm-22 tools
-          for f in /usr/lib/llvm-22/bin/*; do
-            name=$(basename "$f")
-            sudo ln -sf "$f" "/usr/bin/$name" 2>/dev/null || true
-            # Also create version-stripped symlink
-            base="${name%-22}"
-            if [ "$base" != "$name" ]; then
-              sudo ln -sf "$f" "/usr/bin/$base" 2>/dev/null || true
-            fi
-          done
-          flang-new --version
-          which tco && echo "tco found" || echo "tco not found"
-          which fir-opt && echo "fir-opt found" || echo "fir-opt not found"
-          # Show where headers are
-          find /usr/lib/llvm-22/include -name "ISO_Fortran_binding.h" 2>/dev/null || true
-
-      - name: Setup dependencies
-        run: |
-          chmod +x setup.sh build.sh build_flangrt.sh link.sh
-          bash setup.sh
-
-      - name: Build flang runtime
-        run: bash build_flangrt.sh
-
-      - name: Build MUMPS + LAPACK + Ipopt
-        run: bash build.sh
-
-      - name: Link and patch
-        run: bash link.sh
-
-      - name: Assemble site
-        run: |
-          mkdir _site
-          cp build/out/libipopt.a _site/
-          cp build/out/libmumps.a _site/
-          cp build/out/liblapack.a _site/
-          cp build/out/libflangrt.a _site/
-          # Create index
-          cat > _site/index.html << 'HTML'
-          <!DOCTYPE html>
-          <html>
-          <head><title>Ipopt WASM</title></head>
-          <body>
-          <h1>Ipopt compiled to WebAssembly</h1>
-          <p>Static libraries for linking Ipopt+MUMPS in WebAssembly (wasm64/MEMORY64):</p>
-          <ul>
-          <li><a href="libipopt.a">libipopt.a</a> - Ipopt optimizer</li>
-          <li><a href="libmumps.a">libmumps.a</a> - MUMPS sparse solver</li>
-          <li><a href="liblapack.a">liblapack.a</a> - BLAS/LAPACK</li>
-          <li><a href="libflangrt.a">libflangrt.a</a> - Fortran runtime</li>
-          </ul>
-          </body>
-          </html>
-          HTML
-
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: dist
 
       - name: Deploy to GitHub Pages
         id: deploy
