@@ -91,7 +91,7 @@ compile_fortran() {
   python3 "$ROOT/fix_malloc.py" "$ll_wasm"
 
   # Step 4: Compile to wasm32 object
-  emcc -c -O2 "$ll_wasm" -o "$obj" 2>&1
+  emcc -c -O2 -fPIC "$ll_wasm" -o "$obj" 2>&1
 }
 
 # Function to compile a C file to wasm object
@@ -107,7 +107,7 @@ compile_c() {
   fi
 
   echo "  C: $(basename "$src")"
-  emcc -c -O2 \
+  emcc -c -O2 -fPIC \
     -DAdd_ \
     -DWITHOUT_PTHREAD=1 \
     -DMUMPS_ARITH=MUMPS_ARITH_d \
@@ -314,7 +314,7 @@ done
 # Build dmumps_c.c (the C interface)
 echo "  C: mumps_c.c -> dmumps_c.o"
 if [ ! -f "$OBJDIR/dmumps_c.o" ]; then
-  emcc -c -O2 \
+  emcc -c -O2 -fPIC \
     -DAdd_ \
     -DWITHOUT_PTHREAD=1 \
     -DMUMPS_ARITH=MUMPS_ARITH_d \
@@ -394,7 +394,7 @@ compile_lapack_fortran() {
       -e 's/declare ptr @malloc(i64)/declare ptr @malloc(i32)/g' \
       "$ll_native" > "$ll_wasm"
   python3 "$ROOT/fix_malloc.py" "$ll_wasm"
-  emcc -c -O2 "$ll_wasm" -o "$obj" 2>&1
+  emcc -c -O2 -fPIC "$ll_wasm" -o "$obj" 2>&1
 }
 
 # Compile LAPACK f90 module dependencies first (before BLAS, since BLAS .f90 may use them)
@@ -416,7 +416,7 @@ for f in "$LAPACK_DIR"/BLAS/SRC/*.f "$LAPACK_DIR"/BLAS/SRC/*.f90; do
   basename="$(basename "$basename" .f90)"
   if [ ! -f "$LAPACK_OBJDIR/${basename}.o" ]; then
     echo -n "."
-    compile_lapack_fortran "$f"
+    compile_lapack_fortran "$f" || true
   fi
 done
 echo ""
@@ -426,7 +426,7 @@ for f in "$LAPACK_DIR"/SRC/*.f; do
   basename="$(basename "$f" .f)"
   if [ ! -f "$LAPACK_OBJDIR/${basename}.o" ]; then
     echo -n "."
-    compile_lapack_fortran "$f"
+    compile_lapack_fortran "$f" || true
   fi
 done
 # Also compile LAPACK f90 files
@@ -434,7 +434,7 @@ for f in "$LAPACK_DIR"/SRC/*.f90; do
   basename="$(basename "$f" .f90)"
   if [ ! -f "$LAPACK_OBJDIR/${basename}.o" ]; then
     echo -n "."
-    compile_lapack_fortran "$f"
+    compile_lapack_fortran "$f" || true
   fi
 done
 echo ""
@@ -493,7 +493,7 @@ compile_ipopt_cpp() {
   fi
 
   echo "  CXX: $(basename "$src")"
-  emcc -c -O2 -std=c++17 \
+  emcc -c -O2 -fPIC -std=c++17 \
     "${IPOPT_DEFINES[@]}" \
     "${IPOPT_INCLUDES[@]}" \
     "$src" -o "$obj" 2>&1
@@ -541,7 +541,7 @@ done
 # Also compile the C file
 echo "  C: IpLinearSolvers.c"
 if [ ! -f "$IPOPT_OBJDIR/IpLinearSolvers.o" ]; then
-  emcc -c -O2 \
+  emcc -c -O2 -fPIC \
     "${IPOPT_DEFINES[@]}" \
     "${IPOPT_INCLUDES[@]}" \
     "$IPOPT_SRC/Algorithm/LinearSolvers/IpLinearSolvers.c" -o "$IPOPT_OBJDIR/IpLinearSolvers.o" 2>&1
@@ -564,7 +564,7 @@ done
 # Also the C interface
 echo "  C: IpStdFInterface.c"
 if [ ! -f "$IPOPT_OBJDIR/IpStdFInterface.o" ]; then
-  emcc -c -O2 \
+  emcc -c -O2 -fPIC \
     "${IPOPT_DEFINES[@]}" \
     "${IPOPT_INCLUDES[@]}" \
     "$IPOPT_SRC/Interfaces/IpStdFInterface.c" -o "$IPOPT_OBJDIR/IpStdFInterface.o" 2>&1

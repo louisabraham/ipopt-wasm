@@ -33,7 +33,7 @@ if grep -q "mpi_bcast_.*i64 %" "$BUILD_DIR/ll/dmumps_save_restore_files_native.l
     "$BUILD_DIR/ll/dmumps_save_restore_files_native.ll"
   rm -f "$BUILD_DIR/ll/dmumps_save_restore_files_native.ll.bak"
   retarget_wasm32 "$BUILD_DIR/ll/dmumps_save_restore_files_native.ll" "$BUILD_DIR/ll/dmumps_save_restore_files.ll"
-  emcc -c -O2 "$BUILD_DIR/ll/dmumps_save_restore_files.ll" -o "$BUILD_DIR/obj/dmumps_save_restore_files.o" 2>&1
+  emcc -c -O2 -fPIC "$BUILD_DIR/ll/dmumps_save_restore_files.ll" -o "$BUILD_DIR/obj/dmumps_save_restore_files.o" 2>&1
 fi
 
 # dmumps_root_solve_: add extra param to match caller (19 vs 18 args)
@@ -43,11 +43,14 @@ if ! grep -q "extra_ignored" "$BUILD_DIR/ll/dsol_root_parallel_native.ll" 2>/dev
   sed 's/define void @dmumps_root_solve_(ptr noalias %0, ptr noalias %1, ptr noalias %2, ptr noalias %3, ptr noalias %4, ptr noalias %5, ptr noalias %6, ptr noalias %7, ptr noalias %8, ptr noalias %9, ptr noalias %10, ptr noalias %11, ptr noalias %12, ptr noalias %13, ptr noalias %14, ptr noalias %15, ptr noalias %16, ptr noalias %17)/define void @dmumps_root_solve_(ptr noalias %0, ptr noalias %1, ptr noalias %2, ptr noalias %3, ptr noalias %4, ptr noalias %5, ptr noalias %6, ptr noalias %7, ptr noalias %8, ptr noalias %9, ptr noalias %10, ptr noalias %11, ptr noalias %12, ptr noalias %13, ptr noalias %14, ptr noalias %15, ptr noalias %16, ptr noalias %17, ptr %extra_ignored)/' > "$BUILD_DIR/ll/dsol_root_parallel_tmp.ll"
   retarget_wasm32 "$BUILD_DIR/ll/dsol_root_parallel_tmp.ll" "$BUILD_DIR/ll/dsol_root_parallel.ll"
   rm -f "$BUILD_DIR/ll/dsol_root_parallel_tmp.ll"
-  emcc -c -O2 "$BUILD_DIR/ll/dsol_root_parallel.ll" -o "$BUILD_DIR/obj/dsol_root_parallel.o" 2>&1
+  emcc -c -O2 -fPIC "$BUILD_DIR/ll/dsol_root_parallel.ll" -o "$BUILD_DIR/obj/dsol_root_parallel.o" 2>&1
 fi
 
 # Rebuild MUMPS library
 emar rcs "$OUTDIR/libmumps.a" "$BUILD_DIR/obj"/*.o
+
+echo "=== Compiling bridges ==="
+emcc -c -O2 -fPIC "$ROOT/wasm32_bridges.c" -o "$BUILD_DIR/obj/wasm32_bridges.o"
 
 echo "=== Linking ==="
 emcc -O2 -std=c++17 \
@@ -56,7 +59,7 @@ emcc -O2 -std=c++17 \
   -I "$IPOPT_SRC/Algorithm" -I "$IPOPT_SRC/Algorithm/LinearSolvers" \
   -I "$IPOPT_SRC/Interfaces" -I "$IPOPT_SRC/contrib/CGPenalty" \
   -I "$MUMPS_DIR" -I "$MUMPS_DIR/MUMPS/include" -I "$MUMPS_DIR/MUMPS/libseq" \
-  test/hs071.cpp "$ROOT/wasm32_bridges.c" \
+  test/hs071.cpp "$BUILD_DIR/obj/wasm32_bridges.o" \
   "$OUTDIR/libipopt.a" "$OUTDIR/libmumps.a" "$OUTDIR/liblapack.a" "$OUTDIR/libflangrt.a" \
   -o "$OUTDIR/ipopt_test.js" \
   -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=2097152 -sINITIAL_MEMORY=67108864 \

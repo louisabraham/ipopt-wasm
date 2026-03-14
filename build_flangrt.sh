@@ -63,7 +63,7 @@ if [ ! -f "$OVERRIDE_DIR/ISO_Fortran_binding.h" ]; then
 fi
 
 FLANGRT_FLAGS=(
-  -O2 -std=c++17 -Wno-c++11-narrowing
+  -O2 -fPIC -std=c++17 -Wno-c++11-narrowing
   -I "$BUILD_DIR/include_override"
   -I "$LLVM_SRC/flang-rt/include"
   -I "$FLANG_INCLUDE"
@@ -89,7 +89,7 @@ done
 
 # Compile C file
 if [ ! -f "$OBJDIR/complex-reduction.o" ]; then
-  emcc -c -O2 \
+  emcc -c -O2 -fPIC \
     -I "$LLVM_SRC/flang-rt/include" \
     -I "$FLANG_INCLUDE" \
     -DFLANG_LITTLE_ENDIAN=1 \
