@@ -1,14 +1,28 @@
 #!/bin/bash
 set -e
 
-# Link Ipopt + MUMPS + LAPACK + flang runtime into a wasm64 binary
-# Then apply WAT patches for LLVM wasm64 codegen bugs
+# Link Ipopt + MUMPS + LAPACK + flang runtime into a wasm32 binary
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$ROOT/build"
 OUTDIR="$BUILD_DIR/out"
 IPOPT_SRC="$ROOT/Ipopt/src"
 MUMPS_DIR="$ROOT/ThirdParty-Mumps"
+
+# Common sed fixups for retargeting LLVM IR to wasm32
+retarget_wasm32() {
+  local input="$1" output="$2"
+  sed -e 's/ common global / weak global /g' \
+      -e 's|^target datalayout = .*|target datalayout = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"|' \
+      -e 's|^target triple = .*|target triple = "wasm32-unknown-emscripten"|' \
+      -e 's/i64 ptrtoint (ptr @[^ ]* to i64)/i64 0/g' \
+      -e 's/ captures(none)//g' \
+      -e 's/ nocreateundeforpoison//g' \
+      -e 's/ noaliasing//g' \
+      -e 's/declare ptr @malloc(i64)/declare ptr @malloc(i32)/g' \
+      "$input" > "$output"
+  python3 "$ROOT/fix_malloc.py" "$output"
+}
 
 echo "=== Fixing MUMPS signature mismatches ==="
 # mpi_bcast_: remove 7th arg (hidden char length) from one caller
@@ -18,54 +32,41 @@ if grep -q "mpi_bcast_.*i64 %" "$BUILD_DIR/ll/dmumps_save_restore_files_native.l
     -e 's/declare void @mpi_bcast_(ptr, ptr, ptr, ptr, ptr, ptr, i64)/declare void @mpi_bcast_(ptr, ptr, ptr, ptr, ptr, ptr)/' \
     "$BUILD_DIR/ll/dmumps_save_restore_files_native.ll"
   rm -f "$BUILD_DIR/ll/dmumps_save_restore_files_native.ll.bak"
-  sed -e 's/ common global / weak global /g' \
-      -e 's|^target datalayout = .*|target datalayout = "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"|' \
-      -e 's|^target triple = .*|target triple = "wasm64-unknown-emscripten"|' \
-      -e 's/i64 ptrtoint (ptr @[^ ]* to i64)/i64 0/g' \
-      "$BUILD_DIR/ll/dmumps_save_restore_files_native.ll" > "$BUILD_DIR/ll/dmumps_save_restore_files.ll"
-  emcc -c -O2 -sMEMORY64=1 "$BUILD_DIR/ll/dmumps_save_restore_files.ll" -o "$BUILD_DIR/obj/dmumps_save_restore_files.o" 2>&1
+  retarget_wasm32 "$BUILD_DIR/ll/dmumps_save_restore_files_native.ll" "$BUILD_DIR/ll/dmumps_save_restore_files.ll"
+  emcc -c -O2 "$BUILD_DIR/ll/dmumps_save_restore_files.ll" -o "$BUILD_DIR/obj/dmumps_save_restore_files.o" 2>&1
 fi
 
-# dmumps_root_solve_: add extra param to match caller
+# dmumps_root_solve_: add extra param to match caller (19 vs 18 args)
 if ! grep -q "extra_ignored" "$BUILD_DIR/ll/dsol_root_parallel_native.ll" 2>/dev/null; then
-  sed \
-    -e 's/define void @dmumps_root_solve_(ptr noalias captures(none) %0, ptr noalias captures(none) %1, ptr noalias captures(none) %2, ptr noalias captures(none) %3, ptr noalias captures(none) %4, ptr noalias captures(none) %5, ptr noalias captures(none) %6, ptr noalias captures(none) %7, ptr noalias captures(none) %8, ptr noalias captures(none) %9, ptr noalias captures(none) %10, ptr noalias captures(none) %11, ptr noalias captures(none) %12, ptr noalias captures(none) %13, ptr noalias captures(none) %14, ptr noalias captures(none) %15, ptr noalias captures(none) %16, ptr noalias captures(none) %17)/define void @dmumps_root_solve_(ptr noalias captures(none) %0, ptr noalias captures(none) %1, ptr noalias captures(none) %2, ptr noalias captures(none) %3, ptr noalias captures(none) %4, ptr noalias captures(none) %5, ptr noalias captures(none) %6, ptr noalias captures(none) %7, ptr noalias captures(none) %8, ptr noalias captures(none) %9, ptr noalias captures(none) %10, ptr noalias captures(none) %11, ptr noalias captures(none) %12, ptr noalias captures(none) %13, ptr noalias captures(none) %14, ptr noalias captures(none) %15, ptr noalias captures(none) %16, ptr noalias captures(none) %17, ptr %extra_ignored)/' \
-    -e 's/ common global / weak global /g' \
-    -e 's|^target datalayout = .*|target datalayout = "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"|' \
-    -e 's|^target triple = .*|target triple = "wasm64-unknown-emscripten"|' \
-    -e 's/i64 ptrtoint (ptr @[^ ]* to i64)/i64 0/g' \
-    "$BUILD_DIR/ll/dsol_root_parallel_native.ll" > "$BUILD_DIR/ll/dsol_root_parallel.ll"
-  emcc -c -O2 -sMEMORY64=1 "$BUILD_DIR/ll/dsol_root_parallel.ll" -o "$BUILD_DIR/obj/dsol_root_parallel.o" 2>&1
+  # Strip captures(none) first, then add extra param
+  sed 's/ captures(none)//g' "$BUILD_DIR/ll/dsol_root_parallel_native.ll" | \
+  sed 's/define void @dmumps_root_solve_(ptr noalias %0, ptr noalias %1, ptr noalias %2, ptr noalias %3, ptr noalias %4, ptr noalias %5, ptr noalias %6, ptr noalias %7, ptr noalias %8, ptr noalias %9, ptr noalias %10, ptr noalias %11, ptr noalias %12, ptr noalias %13, ptr noalias %14, ptr noalias %15, ptr noalias %16, ptr noalias %17)/define void @dmumps_root_solve_(ptr noalias %0, ptr noalias %1, ptr noalias %2, ptr noalias %3, ptr noalias %4, ptr noalias %5, ptr noalias %6, ptr noalias %7, ptr noalias %8, ptr noalias %9, ptr noalias %10, ptr noalias %11, ptr noalias %12, ptr noalias %13, ptr noalias %14, ptr noalias %15, ptr noalias %16, ptr noalias %17, ptr %extra_ignored)/' > "$BUILD_DIR/ll/dsol_root_parallel_tmp.ll"
+  retarget_wasm32 "$BUILD_DIR/ll/dsol_root_parallel_tmp.ll" "$BUILD_DIR/ll/dsol_root_parallel.ll"
+  rm -f "$BUILD_DIR/ll/dsol_root_parallel_tmp.ll"
+  emcc -c -O2 "$BUILD_DIR/ll/dsol_root_parallel.ll" -o "$BUILD_DIR/obj/dsol_root_parallel.o" 2>&1
 fi
 
 # Rebuild MUMPS library
 emar rcs "$OUTDIR/libmumps.a" "$BUILD_DIR/obj"/*.o
 
 echo "=== Linking ==="
-emcc -O1 -g -sMEMORY64=1 -std=c++17 \
+emcc -O2 -std=c++17 \
   -DHAVE_CONFIG_H -DIPOPTLIB_BUILD -DCOIN_HAS_MUMPS -DIPOPT_HAS_MUMPS -DAdd_ \
   -I "$IPOPT_SRC/Common" -I "$IPOPT_SRC/LinAlg" -I "$IPOPT_SRC/LinAlg/TMatrices" \
   -I "$IPOPT_SRC/Algorithm" -I "$IPOPT_SRC/Algorithm/LinearSolvers" \
   -I "$IPOPT_SRC/Interfaces" -I "$IPOPT_SRC/contrib/CGPenalty" \
   -I "$MUMPS_DIR" -I "$MUMPS_DIR/MUMPS/include" -I "$MUMPS_DIR/MUMPS/libseq" \
-  test/hs071.cpp \
+  test/hs071.cpp "$ROOT/wasm32_bridges.c" \
   "$OUTDIR/libipopt.a" "$OUTDIR/libmumps.a" "$OUTDIR/liblapack.a" "$OUTDIR/libflangrt.a" \
   -o "$OUTDIR/ipopt_test.js" \
   -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=2097152 -sINITIAL_MEMORY=67108864 \
-  -sERROR_ON_UNDEFINED_SYMBOLS=0 -sWASM_BIGINT -sENVIRONMENT=node \
-  -Wl,--no-check-features
-
-echo "=== Patching WAT for LLVM wasm64 codegen bugs ==="
-wasm2wat --enable-memory64 --no-check "$OUTDIR/ipopt_test.wasm" -o "$OUTDIR/ipopt_test.wat"
-python3 "$ROOT/fix_wat_targeted.py" "$OUTDIR/ipopt_test.wat" "$OUTDIR/ipopt_test_fixed.wat"
-wat2wasm --enable-memory64 "$OUTDIR/ipopt_test_fixed.wat" -o "$OUTDIR/ipopt_test.wasm"
-rm -f "$OUTDIR/ipopt_test.wat" "$OUTDIR/ipopt_test_fixed.wat"
+  -sERROR_ON_UNDEFINED_SYMBOLS=0 -sENVIRONMENT=node
 
 echo "=== Validating ==="
-ERRORS=$(wasm-validate --enable-memory64 "$OUTDIR/ipopt_test.wasm" 2>&1 | grep -c "error:" || true)
+ERRORS=$(wasm-validate "$OUTDIR/ipopt_test.wasm" 2>&1 | grep -c "error:" || true)
 if [ "$ERRORS" -gt 0 ]; then
   echo "WARNING: $ERRORS validation errors remain"
-  wasm-validate --enable-memory64 "$OUTDIR/ipopt_test.wasm" 2>&1 | head -5
+  wasm-validate "$OUTDIR/ipopt_test.wasm" 2>&1 | head -5
 else
   echo "wasm validates OK"
 fi

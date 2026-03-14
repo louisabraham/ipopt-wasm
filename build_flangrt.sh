@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Build the flang Fortran runtime library for wasm64 (MEMORY64)
+# Build the flang Fortran runtime library for wasm32
 # Requires: emcc, flang headers (from brew install flang or LLVM source)
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -46,8 +46,25 @@ cat > "$LLVM_SRC/flang-rt/lib/runtime/config.h" << 'EOF'
 #endif
 EOF
 
+# Create patched ISO_Fortran_binding.h with 64-bit CFI_index_t and elem_len
+# (flang tco generates i64 for these even on i686 targets)
+OVERRIDE_DIR="$BUILD_DIR/include_override/flang"
+mkdir -p "$OVERRIDE_DIR"
+if [ ! -f "$OVERRIDE_DIR/ISO_Fortran_binding.h" ]; then
+  cp "$FLANG_INCLUDE/flang/ISO_Fortran_binding.h" "$OVERRIDE_DIR/ISO_Fortran_binding.h"
+  sed -i.bak \
+    -e 's/typedef ptrdiff_t CFI_index_t;/typedef int64_t CFI_index_t;/' \
+    -e 's/size_t elem_len;/uint64_t elem_len;/' \
+    "$OVERRIDE_DIR/ISO_Fortran_binding.h"
+  # Add stdint.h include for int64_t/uint64_t
+  sed -i.bak '/#ifndef CFI_ISO_FORTRAN_BINDING_H_/a\
+#include <stdint.h>' "$OVERRIDE_DIR/ISO_Fortran_binding.h"
+  rm -f "$OVERRIDE_DIR/ISO_Fortran_binding.h.bak"
+fi
+
 FLANGRT_FLAGS=(
-  -O2 -sMEMORY64=1 -std=c++17 -Wno-c++11-narrowing
+  -O2 -std=c++17 -Wno-c++11-narrowing
+  -I "$BUILD_DIR/include_override"
   -I "$LLVM_SRC/flang-rt/include"
   -I "$FLANG_INCLUDE"
   -I "$FLANG_INCLUDE/flang"
@@ -56,7 +73,7 @@ FLANGRT_FLAGS=(
   -DFLANG_LITTLE_ENDIAN=1
 )
 
-echo "=== Compiling flang runtime for wasm64 ==="
+echo "=== Compiling flang runtime for wasm32 ==="
 COMPILED=0
 ERRORS=0
 for f in "$LLVM_SRC"/flang-rt/lib/runtime/*.cpp; do
@@ -72,7 +89,7 @@ done
 
 # Compile C file
 if [ ! -f "$OBJDIR/complex-reduction.o" ]; then
-  emcc -c -O2 -sMEMORY64=1 \
+  emcc -c -O2 \
     -I "$LLVM_SRC/flang-rt/include" \
     -I "$FLANG_INCLUDE" \
     -DFLANG_LITTLE_ENDIAN=1 \

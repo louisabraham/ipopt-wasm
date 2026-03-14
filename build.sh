@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-# Build Ipopt + MUMPS for WebAssembly
-# Strategy: Fortran -> LLVM IR (via flang) -> retarget wasm32 -> emcc
+# Build Ipopt + MUMPS for WebAssembly (wasm32)
+# Strategy: Fortran -> FIR -> tco(i686) -> retarget wasm32 -> emcc
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 MUMPS_DIR="$ROOT/ThirdParty-Mumps"
@@ -36,8 +36,8 @@ retarget_ll() {
   local input="$1"
   local output="$2"
   sed \
-    -e 's/^target datalayout = .*/target datalayout = "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"/' \
-    -e 's/^target triple = .*/target triple = "wasm64-unknown-emscripten"/' \
+    -e 's/^target datalayout = .*/target datalayout = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"/' \
+    -e 's/^target triple = .*/target triple = "wasm32-unknown-emscripten"/' \
     -e 's/ "target-cpu"="[^"]*"//g' \
     -e 's/ "target-features"="[^"]*"//g' \
     -e 's/ "frame-pointer"="[^"]*"/ "frame-pointer"="all"/g' \
@@ -74,20 +74,24 @@ compile_fortran() {
   fir-opt --external-name-interop "$fir" -o "${fir}.interop" 2>&1
 
   # Step 3: FIR -> LLVM IR (targeting i686 for 32-bit pointers)
-  tco --target=x86_64-unknown-linux-gnu "${fir}.interop" -o "$ll_native" 2>&1
+  tco --target=i686-unknown-linux-gnu "${fir}.interop" -o "$ll_native" 2>&1
 
-  # Step 3: Retarget to wasm64 and fix common linkage + ptrtoint
+  # Step 3: Retarget to wasm32 and fix common linkage + ptrtoint
   sed -e 's/ common global / weak global /g' \
-      -e 's|^target datalayout = .*|target datalayout = "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"|' \
-      -e 's|^target triple = .*|target triple = "wasm64-unknown-emscripten"|' \
+      -e 's|^target datalayout = .*|target datalayout = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"|' \
+      -e 's|^target triple = .*|target triple = "wasm32-unknown-emscripten"|' \
       -e 's/i64 ptrtoint (ptr @[^ ]* to i64)/i64 0/g' \
       -e 's/ captures(none)//g' \
       -e 's/ nocreateundeforpoison//g' \
       -e 's/ noaliasing//g' \
+      -e 's/declare ptr @malloc(i64)/declare ptr @malloc(i32)/g' \
       "$ll_native" > "$ll_wasm"
 
+  # Step 3b: Fix malloc(i64) calls -> malloc(i32) with trunc
+  python3 "$ROOT/fix_malloc.py" "$ll_wasm"
+
   # Step 4: Compile to wasm32 object
-  emcc -c -O2 -sMEMORY64=1 "$ll_wasm" -o "$obj" 2>&1
+  emcc -c -O2 "$ll_wasm" -o "$obj" 2>&1
 }
 
 # Function to compile a C file to wasm object
@@ -103,7 +107,7 @@ compile_c() {
   fi
 
   echo "  C: $(basename "$src")"
-  emcc -c -O2 -sMEMORY64=1 \
+  emcc -c -O2 \
     -DAdd_ \
     -DWITHOUT_PTHREAD=1 \
     -DMUMPS_ARITH=MUMPS_ARITH_d \
@@ -310,7 +314,7 @@ done
 # Build dmumps_c.c (the C interface)
 echo "  C: mumps_c.c -> dmumps_c.o"
 if [ ! -f "$OBJDIR/dmumps_c.o" ]; then
-  emcc -c -O2 -sMEMORY64=1 \
+  emcc -c -O2 \
     -DAdd_ \
     -DWITHOUT_PTHREAD=1 \
     -DMUMPS_ARITH=MUMPS_ARITH_d \
@@ -378,17 +382,19 @@ compile_lapack_fortran() {
     "$src" 2>&1 | grep -v "warning:" || true
 
   fir-opt --external-name-interop "$fir" -o "${fir}.interop" 2>&1
-  tco --target=x86_64-unknown-linux-gnu "${fir}.interop" -o "$ll_native" 2>&1
+  tco --target=i686-unknown-linux-gnu "${fir}.interop" -o "$ll_native" 2>&1
 
   sed -e 's/ common global / weak global /g' \
-      -e 's|^target datalayout = .*|target datalayout = "e-m:e-p:64:64-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"|' \
-      -e 's|^target triple = .*|target triple = "wasm64-unknown-emscripten"|' \
+      -e 's|^target datalayout = .*|target datalayout = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"|' \
+      -e 's|^target triple = .*|target triple = "wasm32-unknown-emscripten"|' \
       -e 's/i64 ptrtoint (ptr @[^ ]* to i64)/i64 0/g' \
       -e 's/ captures(none)//g' \
       -e 's/ nocreateundeforpoison//g' \
       -e 's/ noaliasing//g' \
+      -e 's/declare ptr @malloc(i64)/declare ptr @malloc(i32)/g' \
       "$ll_native" > "$ll_wasm"
-  emcc -c -O2 -sMEMORY64=1 "$ll_wasm" -o "$obj" 2>&1
+  python3 "$ROOT/fix_malloc.py" "$ll_wasm"
+  emcc -c -O2 "$ll_wasm" -o "$obj" 2>&1
 }
 
 # Compile LAPACK f90 module dependencies first (before BLAS, since BLAS .f90 may use them)
@@ -487,7 +493,7 @@ compile_ipopt_cpp() {
   fi
 
   echo "  CXX: $(basename "$src")"
-  emcc -c -O2 -sMEMORY64=1 -std=c++17 \
+  emcc -c -O2 -std=c++17 \
     "${IPOPT_DEFINES[@]}" \
     "${IPOPT_INCLUDES[@]}" \
     "$src" -o "$obj" 2>&1
@@ -535,7 +541,7 @@ done
 # Also compile the C file
 echo "  C: IpLinearSolvers.c"
 if [ ! -f "$IPOPT_OBJDIR/IpLinearSolvers.o" ]; then
-  emcc -c -O2 -sMEMORY64=1 \
+  emcc -c -O2 \
     "${IPOPT_DEFINES[@]}" \
     "${IPOPT_INCLUDES[@]}" \
     "$IPOPT_SRC/Algorithm/LinearSolvers/IpLinearSolvers.c" -o "$IPOPT_OBJDIR/IpLinearSolvers.o" 2>&1
@@ -558,7 +564,7 @@ done
 # Also the C interface
 echo "  C: IpStdFInterface.c"
 if [ ! -f "$IPOPT_OBJDIR/IpStdFInterface.o" ]; then
-  emcc -c -O2 -sMEMORY64=1 \
+  emcc -c -O2 \
     "${IPOPT_DEFINES[@]}" \
     "${IPOPT_INCLUDES[@]}" \
     "$IPOPT_SRC/Interfaces/IpStdFInterface.c" -o "$IPOPT_OBJDIR/IpStdFInterface.o" 2>&1
