@@ -5,20 +5,24 @@
 <h1>ipopt-wasm browser test</h1>
 <pre id="output">Loading...</pre>
 <script type="module">
-import { solve } from "./index.mjs";
-
 const el = document.getElementById("output");
 const log = (msg) => { el.textContent += msg + "\n"; console.log(msg); };
 
+// Capture console.error from Fortran/Emscripten runtime
+const origErr = console.error;
+console.error = (...args) => { log("[stderr] " + args.join(" ")); origErr(...args); };
+
 try {
-  el.textContent = "Solving HS071...\n";
+  el.textContent = "Loading module...\n";
+  const { solve } = await import("./index.mjs");
+  log("Module loaded. Solving HS071...");
 
   const result = await solve({
     n: 4, m: 2,
     x0: new Float64Array([1, 5, 5, 1]),
     xl: new Float64Array([1, 1, 1, 1]),
     xu: new Float64Array([5, 5, 5, 5]),
-    gl: new Float64Array([25, 1e19]),
+    gl: new Float64Array([25, 40]),
     gu: new Float64Array([1e19, 40]),
     nele_jac: 8, nele_hess: 10,
 
@@ -64,9 +68,9 @@ try {
   log("x: [" + Array.from(result.x).map(v => v.toFixed(6)).join(", ") + "]");
   log("objective: " + result.objective.toFixed(6));
   log("status: " + result.status + (result.status === 0 ? " (optimal)" : " (FAILED)"));
-  log(result.status === 0 && Math.abs(result.objective - 17.014017) < 0.001 ? "PASS ✓" : "FAIL ✗");
+  log(result.status === 0 && Math.abs(result.objective - 17.014017) < 0.001 ? "\nPASS ✓" : "\nFAIL ✗");
 } catch (e) {
-  log("ERROR: " + (e?.message || String(e)));
+  log("\nERROR: " + (e?.message || String(e)));
   if (e?.stack) log(e.stack);
 }
 </script>
