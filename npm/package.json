@@ -1,21 +1,32 @@
 {
-  "name": "ipopt-wasm",
+  "name": "ipopt",
   "version": "0.1.0",
-  "description": "Ipopt nonlinear optimizer for JavaScript via WebAssembly",
+  "description": "Ipopt nonlinear optimizer for JavaScript via WebAssembly (includes MUMPS solver)",
   "type": "module",
   "main": "index.mjs",
   "files": [
     "index.mjs",
     "ipopt.mjs",
-    "ipopt.wasm"
+    "ipopt.wasm",
+    "README.md"
   ],
   "scripts": {
     "test": "node test.mjs"
   },
-  "keywords": ["ipopt", "optimization", "nonlinear", "wasm", "webassembly", "mumps"],
+  "keywords": [
+    "ipopt",
+    "optimization",
+    "nonlinear",
+    "wasm",
+    "webassembly",
+    "mumps",
+    "solver",
+    "interior-point"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/louisabraham/ipopt-wasm"
-  }
+  },
+  "author": "Louis Abraham"
 }

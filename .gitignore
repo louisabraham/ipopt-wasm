@@ -4,3 +4,6 @@ ThirdParty-Mumps/
 lapack/
 llvm-project/
 *.mod
+npm/node_modules/
+npm/package-lock.json
+node_modules/
