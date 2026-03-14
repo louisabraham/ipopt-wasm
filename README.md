@@ -50,6 +50,35 @@ import cyipopt
 
 This means Ipopt — a production-grade nonlinear optimizer backed by the MUMPS sparse direct solver — can now run entirely in the browser with no server-side computation.
 
+## npm package
+
+The `npm/` directory contains a JavaScript/TypeScript-friendly wrapper around Ipopt. It works in both Node.js and browsers — all objective functions and constraints are defined in JavaScript.
+
+```javascript
+import { solve } from "ipopt-wasm";
+
+const result = await solve({
+  n: 4, m: 2,
+  x0: new Float64Array([1, 5, 5, 1]),
+  xl: new Float64Array([1, 1, 1, 1]),
+  xu: new Float64Array([5, 5, 5, 5]),
+  gl: new Float64Array([25, 1e19]),
+  gu: new Float64Array([1e19, 40]),
+  nele_jac: 8, nele_hess: 10,
+
+  eval_f: (x) => x[0]*x[3]*(x[0]+x[1]+x[2]) + x[2],
+  eval_grad_f: (x) => new Float64Array([...]),
+  eval_g: (x) => new Float64Array([...]),
+  eval_jac_g: (x, structure) => structure ? {iRow, jCol} : new Float64Array([...]),
+  eval_h: (x, obj_factor, lambda, structure) => structure ? {iRow, jCol} : new Float64Array([...]),
+}, { print_level: 0, linear_solver: "mumps" });
+
+console.log(result.x, result.objective, result.status);
+```
+
+Test in Node: `cd npm && node test.mjs`
+Test in browser: serve `npm/` and open `test.html`
+
 ## How the build was produced
 
 ### Prerequisites (macOS)
@@ -81,6 +110,10 @@ WebAssembly object (.o)
 
 ### Build steps
 
+The full build compiles ~2500 source files (130 MUMPS Fortran, 2200+ BLAS/LAPACK, 109 Ipopt C++, 65 flang runtime C++) and takes approximately 30 minutes on a modern machine. Because of this, the CI only deploys the pre-built `dist/` directory to GitHub Pages — it does not rebuild from source.
+
+To reproduce the `dist/` libraries locally:
+
 ```bash
 # 1. Download dependencies (Ipopt, MUMPS, LAPACK source)
 bash setup.sh
@@ -93,6 +126,9 @@ bash build.sh
 
 # 4. Link, validate, test
 bash link.sh
+
+# 5. Copy artifacts to dist/
+cp build/out/lib*.a dist/
 ```
 
 ### Key workarounds

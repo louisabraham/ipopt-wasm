@@ -1,0 +1,21 @@
+{
+  "name": "ipopt-wasm",
+  "version": "0.1.0",
+  "description": "Ipopt nonlinear optimizer for JavaScript via WebAssembly",
+  "type": "module",
+  "main": "index.mjs",
+  "files": [
+    "index.mjs",
+    "ipopt.mjs",
+    "ipopt.wasm"
+  ],
+  "scripts": {
+    "test": "node test.mjs"
+  },
+  "keywords": ["ipopt", "optimization", "nonlinear", "wasm", "webassembly", "mumps"],
+  "license": "EPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/louisabraham/ipopt-wasm"
+  }
+}
