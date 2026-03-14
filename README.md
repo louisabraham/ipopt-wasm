@@ -6,7 +6,7 @@ Ipopt (Interior Point Optimizer) + MUMPS sparse solver compiled to WebAssembly.
 
 ## Pre-built libraries
 
-The `dist/` directory contains pre-built static libraries (wasm64/MEMORY64):
+The `dist/` directory contains pre-built static libraries (wasm32):
 
 | Library | Contents |
 |---------|----------|
@@ -14,14 +14,15 @@ The `dist/` directory contains pre-built static libraries (wasm64/MEMORY64):
 | `libmumps.a` | MUMPS 5.8.1 + PORD + MPI stubs |
 | `liblapack.a` | Reference BLAS/LAPACK |
 | `libflangrt.a` | Flang Fortran runtime |
+| `wasm32_bridges.c` | Bridge functions for Fortran runtime ABI |
 
 ## How to use
 
-Link against these libraries with Emscripten in MEMORY64 mode:
+Link against these libraries with Emscripten:
 
 ```bash
-emcc -sMEMORY64=1 -sWASM_BIGINT -sALLOW_MEMORY_GROWTH=1 \
-  your_program.cpp \
+emcc -sALLOW_MEMORY_GROWTH=1 -sERROR_ON_UNDEFINED_SYMBOLS=0 \
+  your_program.cpp wasm32_bridges.c \
   libipopt.a libmumps.a liblapack.a libflangrt.a \
   -o output.js
 ```
@@ -89,7 +90,8 @@ On Hock-Schittkowski problem #71 (4 variables):
 
 | Platform | Time |
 |----------|------|
-| Native arm64 (Apple M4) | 2ms |
-| WebAssembly (Node.js) | 42ms |
+| Native arm64 (Apple M4) | 5ms |
+| WebAssembly wasm32 (Node.js) | 43ms |
+| WebAssembly wasm64 (Node.js) | 60ms |
 
-~21x overhead, dominated by startup/initialization on this small problem.
+~9x overhead for wasm32, dominated by startup/initialization on this small problem.
