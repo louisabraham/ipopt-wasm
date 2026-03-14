@@ -2,55 +2,112 @@
 #include <string.h>
 #include <stdint.h>
 #include <emscripten.h>
+#include <emscripten/em_js.h>
 #include "IpStdCInterface.h"
 
-// Store callbacks as integer table indices to work around MEMORY64
-// call_indirect bug (i64 function pointer not truncated to i32 table index)
-static int32_t cb_f=0, cb_gf=0, cb_g=0, cb_jac=0, cb_h=0;
+// EM_JS callbacks — compiled as wasm imports, bypassing the MEMORY64
+// call_indirect bug that blocks addFunction-based callbacks.
+// JS callbacks are stored on Module._userCallbacks before solving.
 
-// Use EM_ASM to call through table indices properly
-// Or: use inline wasm to do call_indirect with i32 index
+EM_JS(double, js_eval_f, (int n, double* x_ptr), {
+    var p = Number(x_ptr) / 8;
+    var x = new Float64Array(n);
+    for (var i = 0; i < n; i++) x[i] = HEAPF64[p + i];
+    return Module._userCallbacks.eval_f(x);
+});
 
-typedef double (*FnF)(int, double*);
-typedef void (*FnGF)(int, double*, double*);
-typedef void (*FnG)(int, double*, int, double*);
-typedef void (*FnJac)(int, double*, int, int, int*, int*, double*, int);
-typedef void (*FnH)(int, double*, double, int, double*, int, int*, int*, double*, int);
+EM_JS(void, js_eval_grad_f, (int n, double* x_ptr, double* grad_ptr), {
+    var p = Number(x_ptr) / 8;
+    var x = new Float64Array(n);
+    for (var i = 0; i < n; i++) x[i] = HEAPF64[p + i];
+    var result = Module._userCallbacks.eval_grad_f(x);
+    var g = Number(grad_ptr) / 8;
+    for (var i = 0; i < n; i++) HEAPF64[g + i] = result[i];
+});
 
-// Workaround: cast i32 table index to function pointer and call
-// The compiler SHOULD truncate, but doesn't. Force it:
-#define CALL_F(idx, ...) ((FnF)(intptr_t)(int32_t)(idx))(__VA_ARGS__)
-#define CALL_GF(idx, ...) ((FnGF)(intptr_t)(int32_t)(idx))(__VA_ARGS__)
-#define CALL_G(idx, ...) ((FnG)(intptr_t)(int32_t)(idx))(__VA_ARGS__)
-#define CALL_JAC(idx, ...) ((FnJac)(intptr_t)(int32_t)(idx))(__VA_ARGS__)
-#define CALL_H(idx, ...) ((FnH)(intptr_t)(int32_t)(idx))(__VA_ARGS__)
+EM_JS(void, js_eval_g, (int n, double* x_ptr, int m, double* g_ptr), {
+    var p = Number(x_ptr) / 8;
+    var x = new Float64Array(n);
+    for (var i = 0; i < n; i++) x[i] = HEAPF64[p + i];
+    var result = Module._userCallbacks.eval_g(x);
+    var g = Number(g_ptr) / 8;
+    for (var i = 0; i < m; i++) HEAPF64[g + i] = result[i];
+});
 
-static bool c_eval_f(int n, double* x, bool new_x, double* obj, void* ud) {
-    *obj = CALL_F(cb_f, n, x);
-    return true;
+EM_JS(void, js_eval_jac_g, (int n, double* x_ptr, int m, int nele,
+                             int* iRow_ptr, int* jCol_ptr, double* vals_ptr,
+                             int structure), {
+    if (structure) {
+        var s = Module._userCallbacks.eval_jac_g(null, true);
+        var r = Number(iRow_ptr) / 4;
+        var c = Number(jCol_ptr) / 4;
+        for (var i = 0; i < nele; i++) {
+            HEAP32[r + i] = s.iRow[i];
+            HEAP32[c + i] = s.jCol[i];
+        }
+    } else {
+        var p = Number(x_ptr) / 8;
+        var x = new Float64Array(n);
+        for (var i = 0; i < n; i++) x[i] = HEAPF64[p + i];
+        var v = Module._userCallbacks.eval_jac_g(x, false);
+        var pv = Number(vals_ptr) / 8;
+        for (var i = 0; i < nele; i++) HEAPF64[pv + i] = v[i];
+    }
+});
+
+EM_JS(void, js_eval_h, (int n, double* x_ptr, double obj_factor, int m,
+                         double* lambda_ptr, int nele, int* iRow_ptr,
+                         int* jCol_ptr, double* vals_ptr, int structure), {
+    if (structure) {
+        var s = Module._userCallbacks.eval_h(null, 0, null, true);
+        var r = Number(iRow_ptr) / 4;
+        var c = Number(jCol_ptr) / 4;
+        for (var i = 0; i < nele; i++) {
+            HEAP32[r + i] = s.iRow[i];
+            HEAP32[c + i] = s.jCol[i];
+        }
+    } else {
+        var p = Number(x_ptr) / 8;
+        var x = new Float64Array(n);
+        for (var i = 0; i < n; i++) x[i] = HEAPF64[p + i];
+        var pl = Number(lambda_ptr) / 8;
+        var lam = new Float64Array(m);
+        for (var i = 0; i < m; i++) lam[i] = HEAPF64[pl + i];
+        var v = Module._userCallbacks.eval_h(x, obj_factor, lam, false);
+        var pv = Number(vals_ptr) / 8;
+        for (var i = 0; i < nele; i++) HEAPF64[pv + i] = v[i];
+    }
+});
+
+// C callback wrappers matching Ipopt's expected signatures.
+// These are called by Ipopt via call_indirect with correct ABI,
+// and they call back to JS via the EM_JS imports above.
+static Bool c_eval_f(Index n, Number* x, Bool new_x, Number* obj, UserDataPtr ud) {
+    *obj = js_eval_f(n, x);
+    return TRUE;
 }
-static bool c_eval_g(int n, double* x, bool new_x, int m, double* g, void* ud) {
-    CALL_G(cb_g, n, x, m, g);
-    return true;
+static Bool c_eval_g(Index n, Number* x, Bool new_x, Index m, Number* g, UserDataPtr ud) {
+    js_eval_g(n, x, m, g);
+    return TRUE;
 }
-static bool c_eval_grad_f(int n, double* x, bool new_x, double* grad, void* ud) {
-    CALL_GF(cb_gf, n, x, grad);
-    return true;
+static Bool c_eval_grad_f(Index n, Number* x, Bool new_x, Number* grad, UserDataPtr ud) {
+    js_eval_grad_f(n, x, grad);
+    return TRUE;
 }
-static bool c_eval_jac_g(int n, double* x, bool new_x, int m, int nele, int* iRow, int* jCol, double* vals, void* ud) {
-    CALL_JAC(cb_jac, n, x, m, nele, iRow, jCol, vals, vals == NULL ? 1 : 0);
-    return true;
+static Bool c_eval_jac_g(Index n, Number* x, Bool new_x, Index m, Int nele,
+                          Index* iRow, Index* jCol, Number* vals, UserDataPtr ud) {
+    js_eval_jac_g(n, x, m, nele, iRow, jCol, vals, vals == NULL ? 1 : 0);
+    return TRUE;
 }
-static bool c_eval_h(int n, double* x, bool new_x, double obj_factor, int m, double* lambda, bool new_lambda, int nele, int* iRow, int* jCol, double* vals, void* ud) {
-    CALL_H(cb_h, n, x, obj_factor, m, lambda, nele, iRow, jCol, vals, vals == NULL ? 1 : 0);
-    return true;
+static Bool c_eval_h(Index n, Number* x, Bool new_x, Number obj_factor,
+                      Index m, Number* lambda, Bool new_lambda,
+                      Int nele, Index* iRow, Index* jCol, Number* vals, UserDataPtr ud) {
+    js_eval_h(n, x, obj_factor, m, lambda, nele, iRow, jCol, vals, vals == NULL ? 1 : 0);
+    return TRUE;
 }
 
-EMSCRIPTEN_KEEPALIVE void set_callbacks(int32_t f, int32_t gf, int32_t g, int32_t jac, int32_t h) {
-    cb_f=f; cb_gf=gf; cb_g=g; cb_jac=jac; cb_h=h;
-}
-
-EMSCRIPTEN_KEEPALIVE IpoptProblem ipopt_create(int n, double* x_L, double* x_U, int m, double* g_L, double* g_U, int nele_jac, int nele_hess) {
+EMSCRIPTEN_KEEPALIVE IpoptProblem ipopt_create(int n, double* x_L, double* x_U,
+    int m, double* g_L, double* g_U, int nele_jac, int nele_hess) {
     return CreateIpoptProblem(n, x_L, x_U, m, g_L, g_U, nele_jac, nele_hess, 0,
         c_eval_f, c_eval_g, c_eval_grad_f, c_eval_jac_g, c_eval_h);
 }

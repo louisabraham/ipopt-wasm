@@ -3,7 +3,7 @@
 
 // When targeting node and ES6 we use `await import ..` in the generated code
 // so the outer function needs to be marked as async.
-async function createIpopt(moduleArg = {}) {
+async function Module(moduleArg = {}) {
   var moduleRtn;
 
 // include: shell.js
@@ -27,10 +27,13 @@ var Module = moduleArg;
 // Determine the runtime environment we are in. You can customize this by
 // setting the ENVIRONMENT setting at compile time (see settings.js).
 
-var ENVIRONMENT_IS_WEB = false;
-var ENVIRONMENT_IS_WORKER = false;
-var ENVIRONMENT_IS_NODE = true;
-var ENVIRONMENT_IS_SHELL = false;
+// Attempt to auto-detect the environment
+var ENVIRONMENT_IS_WEB = !!globalThis.window;
+var ENVIRONMENT_IS_WORKER = !!globalThis.WorkerGlobalScope;
+// N.b. Electron.js environment is simultaneously a NODE-environment, but
+// also a web environment.
+var ENVIRONMENT_IS_NODE = globalThis.process?.versions?.node && globalThis.process?.type != 'renderer';
+var ENVIRONMENT_IS_SHELL = !ENVIRONMENT_IS_WEB && !ENVIRONMENT_IS_NODE && !ENVIRONMENT_IS_WORKER;
 
 if (ENVIRONMENT_IS_NODE) {
   // When building an ES module `require` is not normally available.
@@ -106,6 +109,26 @@ readAsync = async (filename, binary = true) => {
 // Note that this includes Node.js workers when relevant (pthreads is enabled).
 // Node.js workers are detected as a combination of ENVIRONMENT_IS_WORKER and
 // ENVIRONMENT_IS_NODE.
+if (ENVIRONMENT_IS_WEB || ENVIRONMENT_IS_WORKER) {
+  try {
+    scriptDirectory = new URL('.', _scriptName).href; // includes trailing slash
+  } catch {
+    // Must be a `blob:` or `data:` URL (e.g. `blob:http://site.com/etc/etc`), we cannot
+    // infer anything from them.
+  }
+
+  {
+// include: web_or_worker_shell_read.js
+readAsync = async (url) => {
+    var response = await fetch(url, { credentials: 'same-origin' });
+    if (response.ok) {
+      return response.arrayBuffer();
+    }
+    throw new Error(response.status + ' : ' + response.url);
+  };
+// end include: web_or_worker_shell_read.js
+  }
+} else
 {
 }
 
@@ -973,6 +996,13 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
   
           if (bytesRead > 0) {
             result = buf.slice(0, bytesRead).toString('utf-8');
+          }
+        } else
+        if (globalThis.window?.prompt) {
+          // Browser.
+          result = window.prompt('Input: ');  // returns null on cancel
+          if (result !== null) {
+            result += '\n';
           }
         } else
         {}
@@ -4033,161 +4063,6 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
   ;
   }
 
-  var wasmTableMirror = [];
-  
-  
-  var getWasmTableEntry = (funcPtr) => {
-      // Function pointers should show up as numbers, even under wasm64, but
-      // we still have some places where bigint values can flow here.
-      // https://github.com/emscripten-core/emscripten/issues/18200
-      funcPtr = Number(funcPtr);
-      var func = wasmTableMirror[funcPtr];
-      if (!func) {
-        /** @suppress {checkTypes} */
-        wasmTableMirror[funcPtr] = func = wasmTable.get(BigInt(funcPtr));
-      }
-      return func;
-    };
-  
-  var updateTableMap = (offset, count) => {
-      if (functionsInTableMap) {
-        for (var i = offset; i < offset + count; i++) {
-          var item = getWasmTableEntry(i);
-          // Ignore null values.
-          if (item) {
-            functionsInTableMap.set(item, i);
-          }
-        }
-      }
-    };
-  
-  var functionsInTableMap;
-  
-  var getFunctionAddress = (func) => {
-      // First, create the map if this is the first use.
-      if (!functionsInTableMap) {
-        functionsInTableMap = new WeakMap();
-        updateTableMap(0, Number(wasmTable.length));
-      }
-      return functionsInTableMap.get(func) || 0;
-    };
-  
-  
-  var freeTableIndexes = [];
-  
-  var getEmptyTableSlot = () => {
-      // Reuse a free index if there is one, otherwise grow.
-      if (freeTableIndexes.length) {
-        return freeTableIndexes.pop();
-      }
-        // Grow the table
-        return wasmTable['grow'](1n);
-    };
-  
-  
-  var setWasmTableEntry = (idx, func) => {
-      /** @suppress {checkTypes} */
-      wasmTable.set(BigInt(idx), func);
-      // With ABORT_ON_WASM_EXCEPTIONS wasmTable.get is overridden to return wrapped
-      // functions so we need to call it here to retrieve the potential wrapper correctly
-      // instead of just storing 'func' directly into wasmTableMirror
-      /** @suppress {checkTypes} */
-      wasmTableMirror[idx] = wasmTable.get(BigInt(idx));
-    };
-  
-  var uleb128EncodeWithLen = (arr) => {
-      const n = arr.length;
-      // Note: this LEB128 length encoding produces extra byte for n < 128,
-      // but we don't care as it's only used in a temporary representation.
-      return [(n % 128) | 128, n >> 7, ...arr];
-    };
-  
-  
-  var wasmTypeCodes = {
-      'i': 0x7f, // i32
-      'p': 0x7e, // i64
-      'j': 0x7e, // i64
-      'f': 0x7d, // f32
-      'd': 0x7c, // f64
-      'e': 0x6f, // externref
-    };
-  var generateTypePack = (types) => uleb128EncodeWithLen(Array.from(types, (type) => {
-      var code = wasmTypeCodes[type];
-      return code;
-    }));
-  var convertJsFunctionToWasm = (func, sig) => {
-  
-      // Rest of the module is static
-      var bytes = Uint8Array.of(
-        0x00, 0x61, 0x73, 0x6d, // magic ("\0asm")
-        0x01, 0x00, 0x00, 0x00, // version: 1
-        0x01, // Type section code
-          // The module is static, with the exception of the type section, which is
-          // generated based on the signature passed in.
-          ...uleb128EncodeWithLen([
-            0x01, // count: 1
-            0x60 /* form: func */,
-            // param types
-            ...generateTypePack(sig.slice(1)),
-            // return types (for now only supporting [] if `void` and single [T] otherwise)
-            ...generateTypePack(sig[0] === 'v' ? '' : sig[0])
-          ]),
-        // The rest of the module is static
-        0x02, 0x07, // import section
-          // (import "e" "f" (func 0 (type 0)))
-          0x01, 0x01, 0x65, 0x01, 0x66, 0x00, 0x00,
-        0x07, 0x05, // export section
-          // (export "f" (func 0 (type 0)))
-          0x01, 0x01, 0x66, 0x00, 0x00,
-      );
-  
-      // We can compile this wasm module synchronously because it is very small.
-      // This accepts an import (at "e.f"), that it reroutes to an export (at "f")
-      var module = new WebAssembly.Module(bytes);
-      var instance = new WebAssembly.Instance(module, { 'e': { 'f': func } });
-      var wrappedFunc = instance.exports['f'];
-      return wrappedFunc;
-    };
-  /** @param {string=} sig */
-  var addFunction = (func, sig) => {
-      // Check if the function is already in the table, to ensure each function
-      // gets a unique index.
-      var rtn = getFunctionAddress(func);
-      if (rtn) {
-        return rtn;
-      }
-  
-      // It's not in the table, add it now.
-  
-      var ret = getEmptyTableSlot();
-  
-      // Set the new value.
-      try {
-        // Attempting to call this with JS function will cause table.set() to fail
-        setWasmTableEntry(ret, func);
-      } catch (err) {
-        if (!(err instanceof TypeError)) {
-          throw err;
-        }
-        var wrapped = convertJsFunctionToWasm(func, sig);
-        setWasmTableEntry(ret, wrapped);
-      }
-  
-      functionsInTableMap.set(func, ret);
-  
-      return ret;
-    };
-
-  
-  
-  
-  
-  var removeFunction = (index) => {
-      functionsInTableMap.delete(getWasmTableEntry(index));
-      setWasmTableEntry(index, null);
-      freeTableIndexes.push(index);
-    };
-
 
   FS.createPreloadedFile = FS_createPreloadedFile;
   FS.preloadFile = FS_preloadFile;
@@ -4220,8 +4095,6 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
 }
 
 // Begin runtime exports
-  Module['addFunction'] = addFunction;
-  Module['removeFunction'] = removeFunction;
   Module['stringToUTF8'] = stringToUTF8;
   // End runtime exports
   // Begin JS library exports
@@ -4229,10 +4102,14 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
 
 // end include: postlibrary.js
 
+function js_eval_f(n,x_ptr) { var p = Number(x_ptr) / 8; var x = new Float64Array(n); for (var i = 0; i < n; i++) x[i] = HEAPF64[p + i]; return Module._userCallbacks.eval_f(x); }
+function js_eval_grad_f(n,x_ptr,grad_ptr) { var p = Number(x_ptr) / 8; var x = new Float64Array(n); for (var i = 0; i < n; i++) x[i] = HEAPF64[p + i]; var result = Module._userCallbacks.eval_grad_f(x); var g = Number(grad_ptr) / 8; for (var i = 0; i < n; i++) HEAPF64[g + i] = result[i]; }
+function js_eval_g(n,x_ptr,m,g_ptr) { var p = Number(x_ptr) / 8; var x = new Float64Array(n); for (var i = 0; i < n; i++) x[i] = HEAPF64[p + i]; var result = Module._userCallbacks.eval_g(x); var g = Number(g_ptr) / 8; for (var i = 0; i < m; i++) HEAPF64[g + i] = result[i]; }
+function js_eval_jac_g(n,x_ptr,m,nele,iRow_ptr,jCol_ptr,vals_ptr,structure) { if (structure) { var s = Module._userCallbacks.eval_jac_g(null, true); var r = Number(iRow_ptr) / 4; var c = Number(jCol_ptr) / 4; for (var i = 0; i < nele; i++) { HEAP32[r + i] = s.iRow[i]; HEAP32[c + i] = s.jCol[i]; } } else { var p = Number(x_ptr) / 8; var x = new Float64Array(n); for (var i = 0; i < n; i++) x[i] = HEAPF64[p + i]; var v = Module._userCallbacks.eval_jac_g(x, false); var pv = Number(vals_ptr) / 8; for (var i = 0; i < nele; i++) HEAPF64[pv + i] = v[i]; } }
+function js_eval_h(n,x_ptr,obj_factor,m,lambda_ptr,nele,iRow_ptr,jCol_ptr,vals_ptr,structure) { if (structure) { var s = Module._userCallbacks.eval_h(null, 0, null, true); var r = Number(iRow_ptr) / 4; var c = Number(jCol_ptr) / 4; for (var i = 0; i < nele; i++) { HEAP32[r + i] = s.iRow[i]; HEAP32[c + i] = s.jCol[i]; } } else { var p = Number(x_ptr) / 8; var x = new Float64Array(n); for (var i = 0; i < n; i++) x[i] = HEAPF64[p + i]; var pl = Number(lambda_ptr) / 8; var lam = new Float64Array(m); for (var i = 0; i < m; i++) lam[i] = HEAPF64[pl + i]; var v = Module._userCallbacks.eval_h(x, obj_factor, lam, false); var pv = Number(vals_ptr) / 8; for (var i = 0; i < nele; i++) HEAPF64[pv + i] = v[i]; } }
 
 // Imports from the Wasm binary.
-var _set_callbacks,
-  _ipopt_create,
+var _ipopt_create,
   _ipopt_free,
   _ipopt_str_option,
   _ipopt_num_option,
@@ -4245,12 +4122,10 @@ var _set_callbacks,
   _emscripten_stack_get_current,
   memory,
   __indirect_function_table,
-  wasmMemory,
-  wasmTable;
+  wasmMemory;
 
 
 function assignWasmExports(wasmExports) {
-  _set_callbacks = Module['_set_callbacks'] = wasmExports['set_callbacks'];
   _ipopt_create = Module['_ipopt_create'] = wasmExports['ipopt_create'];
   _ipopt_free = Module['_ipopt_free'] = wasmExports['ipopt_free'];
   _ipopt_str_option = Module['_ipopt_str_option'] = wasmExports['ipopt_str_option'];
@@ -4263,7 +4138,7 @@ function assignWasmExports(wasmExports) {
   __emscripten_stack_alloc = wasmExports['_emscripten_stack_alloc'];
   _emscripten_stack_get_current = wasmExports['emscripten_stack_get_current'];
   memory = wasmMemory = wasmExports['memory'];
-  __indirect_function_table = wasmTable = wasmExports['__indirect_function_table'];
+  __indirect_function_table = wasmExports['__indirect_function_table'];
 }
 
 var wasmImports = {
@@ -4346,7 +4221,17 @@ var wasmImports = {
   /** @export */
   fd_seek: _fd_seek,
   /** @export */
-  fd_write: _fd_write
+  fd_write: _fd_write,
+  /** @export */
+  js_eval_f,
+  /** @export */
+  js_eval_g,
+  /** @export */
+  js_eval_grad_f,
+  /** @export */
+  js_eval_h,
+  /** @export */
+  js_eval_jac_g
 };
 
 
@@ -4449,5 +4334,5 @@ if (runtimeInitialized)  {
 }
 
 // Export using a UMD style export, or ES6 exports if selected
-export default createIpopt;
+export default Module;
 
