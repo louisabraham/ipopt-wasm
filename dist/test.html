@@ -66,8 +66,8 @@ try {
   log("status: " + result.status + (result.status === 0 ? " (optimal)" : " (FAILED)"));
   log(result.status === 0 && Math.abs(result.objective - 17.014017) < 0.001 ? "PASS ✓" : "FAIL ✗");
 } catch (e) {
-  log("ERROR: " + e.message);
-  log(e.stack);
+  log("ERROR: " + (e?.message || String(e)));
+  if (e?.stack) log(e.stack);
 }
 </script>
 </body>
