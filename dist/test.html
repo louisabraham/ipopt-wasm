@@ -1,78 +1,98 @@
 <!DOCTYPE html>
 <html>
-<head><title>ipopt-wasm browser test</title></head>
+<head><title>ipopt-wasm browser test</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2em auto; }
+  pre { background: #f5f5f5; padding: 1em; overflow-x: auto; font-size: 14px; }
+  .pass { color: #2a2; font-weight: bold; }
+  .fail { color: #c22; font-weight: bold; }
+  h2 { margin-top: 1.5em; }
+</style>
+</head>
 <body>
 <h1>ipopt-wasm browser test</h1>
-<pre id="output">Loading...</pre>
+<h2>wasm32</h2>
+<pre id="out32">Loading...</pre>
+<h2>wasm64 (MEMORY64)</h2>
+<pre id="out64">Loading...</pre>
+
 <script type="module">
-const el = document.getElementById("output");
-const log = (msg) => { el.textContent += msg + "\n"; console.log(msg); };
+// HS071 problem definition shared by both tests
+const hs071 = {
+  n: 4, m: 2,
+  x0: new Float64Array([1, 5, 5, 1]),
+  xl: new Float64Array([1, 1, 1, 1]),
+  xu: new Float64Array([5, 5, 5, 5]),
+  gl: new Float64Array([25, 40]),
+  gu: new Float64Array([1e19, 40]),
+  nele_jac: 8, nele_hess: 10,
+  eval_f: (x) => x[0]*x[3]*(x[0]+x[1]+x[2]) + x[2],
+  eval_grad_f: (x) => new Float64Array([
+    x[3]*(2*x[0]+x[1]+x[2]), x[0]*x[3], x[0]*x[3]+1, x[0]*(x[0]+x[1]+x[2])
+  ]),
+  eval_g: (x) => new Float64Array([
+    x[0]*x[1]*x[2]*x[3],
+    x[0]**2 + x[1]**2 + x[2]**2 + x[3]**2
+  ]),
+  eval_jac_g: (x, structure) => {
+    if (structure) return {
+      iRow: new Int32Array([0,0,0,0,1,1,1,1]),
+      jCol: new Int32Array([0,1,2,3,0,1,2,3])
+    };
+    return new Float64Array([
+      x[1]*x[2]*x[3], x[0]*x[2]*x[3], x[0]*x[1]*x[3], x[0]*x[1]*x[2],
+      2*x[0], 2*x[1], 2*x[2], 2*x[3]
+    ]);
+  },
+  eval_h: (x, obj_factor, lambda, structure) => {
+    if (structure) {
+      const iRow=[], jCol=[];
+      for (let r=0;r<4;r++) for (let c=0;c<=r;c++) { iRow.push(r); jCol.push(c); }
+      return { iRow: new Int32Array(iRow), jCol: new Int32Array(jCol) };
+    }
+    const v = new Float64Array(10);
+    v[0]=obj_factor*2*x[3]+lambda[1]*2;
+    v[1]=obj_factor*x[3]+lambda[0]*x[2]*x[3];
+    v[2]=lambda[1]*2;
+    v[3]=obj_factor*x[3]+lambda[0]*x[1]*x[3];
+    v[4]=lambda[0]*x[0]*x[3];
+    v[5]=lambda[1]*2;
+    v[6]=obj_factor*(2*x[0]+x[1]+x[2])+lambda[0]*x[1]*x[2];
+    v[7]=obj_factor*x[0]+lambda[0]*x[0]*x[2];
+    v[8]=obj_factor*x[0]+lambda[0]*x[0]*x[1];
+    v[9]=lambda[1]*2;
+    return v;
+  },
+};
 
-// Capture console.error from Fortran/Emscripten runtime
-const origErr = console.error;
-console.error = (...args) => { log("[stderr] " + args.join(" ")); origErr(...args); };
+async function runTest(el, modulePath, label) {
+  const log = (msg) => { el.textContent += msg + "\n"; };
+  try {
+    el.textContent = `Loading ${label} module...\n`;
+    const t0 = performance.now();
+    const { solve } = await import(modulePath);
+    log(`Module loaded in ${(performance.now()-t0).toFixed(0)}ms. Solving HS071...`);
 
-try {
-  el.textContent = "Loading module...\n";
-  const { solve } = await import("./index.mjs");
-  log("Module loaded. Solving HS071...");
+    const t1 = performance.now();
+    const result = await solve(hs071, { print_level: 0, linear_solver: "mumps" });
+    const ms = (performance.now()-t1).toFixed(0);
 
-  const result = await solve({
-    n: 4, m: 2,
-    x0: new Float64Array([1, 5, 5, 1]),
-    xl: new Float64Array([1, 1, 1, 1]),
-    xu: new Float64Array([5, 5, 5, 5]),
-    gl: new Float64Array([25, 40]),
-    gu: new Float64Array([1e19, 40]),
-    nele_jac: 8, nele_hess: 10,
+    log(`x: [${Array.from(result.x).map(v => v.toFixed(6)).join(", ")}]`);
+    log(`objective: ${result.objective.toFixed(6)}`);
+    log(`status: ${result.status}${result.status === 0 ? " (optimal)" : " (FAILED)"}`);
+    log(`time: ${ms}ms`);
 
-    eval_f: (x) => x[0]*x[3]*(x[0]+x[1]+x[2]) + x[2],
-    eval_grad_f: (x) => new Float64Array([
-      x[3]*(2*x[0]+x[1]+x[2]), x[0]*x[3], x[0]*x[3]+1, x[0]*(x[0]+x[1]+x[2])
-    ]),
-    eval_g: (x) => new Float64Array([
-      x[0]*x[1]*x[2]*x[3],
-      x[0]**2 + x[1]**2 + x[2]**2 + x[3]**2
-    ]),
-    eval_jac_g: (x, structure) => {
-      if (structure) return {
-        iRow: new Int32Array([0,0,0,0,1,1,1,1]),
-        jCol: new Int32Array([0,1,2,3,0,1,2,3])
-      };
-      return new Float64Array([
-        x[1]*x[2]*x[3], x[0]*x[2]*x[3], x[0]*x[1]*x[3], x[0]*x[1]*x[2],
-        2*x[0], 2*x[1], 2*x[2], 2*x[3]
-      ]);
-    },
-    eval_h: (x, obj_factor, lambda, structure) => {
-      if (structure) {
-        const iRow=[], jCol=[];
-        for (let r=0;r<4;r++) for (let c=0;c<=r;c++) { iRow.push(r); jCol.push(c); }
-        return { iRow: new Int32Array(iRow), jCol: new Int32Array(jCol) };
-      }
-      const v = new Float64Array(10);
-      v[0]=obj_factor*2*x[3]+lambda[1]*2;
-      v[1]=obj_factor*x[3]+lambda[0]*x[2]*x[3];
-      v[2]=lambda[1]*2;
-      v[3]=obj_factor*x[3]+lambda[0]*x[1]*x[3];
-      v[4]=lambda[0]*x[0]*x[3];
-      v[5]=lambda[1]*2;
-      v[6]=obj_factor*(2*x[0]+x[1]+x[2])+lambda[0]*x[1]*x[2];
-      v[7]=obj_factor*x[0]+lambda[0]*x[0]*x[2];
-      v[8]=obj_factor*x[0]+lambda[0]*x[0]*x[1];
-      v[9]=lambda[1]*2;
-      return v;
-    },
-  }, { print_level: 0, linear_solver: "mumps" });
-
-  log("x: [" + Array.from(result.x).map(v => v.toFixed(6)).join(", ") + "]");
-  log("objective: " + result.objective.toFixed(6));
-  log("status: " + result.status + (result.status === 0 ? " (optimal)" : " (FAILED)"));
-  log(result.status === 0 && Math.abs(result.objective - 17.014017) < 0.001 ? "\nPASS ✓" : "\nFAIL ✗");
-} catch (e) {
-  log("\nERROR: " + (e?.message || String(e)));
-  if (e?.stack) log(e.stack);
+    const pass = result.status === 0 && Math.abs(result.objective - 17.014017) < 0.001;
+    const span = pass ? '<span class="pass">PASS</span>' : '<span class="fail">FAIL</span>';
+    el.innerHTML = el.textContent.replace(/\n$/, "") + "\n" + span;
+  } catch (e) {
+    log(`\nERROR: ${e?.message || String(e)}`);
+    el.innerHTML = el.textContent.replace(/\n$/, "") + '\n<span class="fail">FAIL</span>';
+  }
 }
+
+runTest(document.getElementById("out32"), "./index.mjs", "wasm32");
+runTest(document.getElementById("out64"), "./index64.mjs", "wasm64");
 </script>
 </body>
 </html>

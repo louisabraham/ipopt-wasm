@@ -64,17 +64,11 @@ export async function solve(problem, options = {}) {
     H[(g_U >> 3) + i] = gu[i];
   }
 
-  // Helper: read Float64Array from wasm
+  // Helpers: use M.HEAPF64/M.HEAP32 live (not cached) to survive memory growth
   const readF64 = (ptr, len) => {
     const out = new Float64Array(len);
-    for (let i = 0; i < len; i++) out[i] = H[(ptr >> 3) + i];
-    return out;
-  };
-
-  // Helper: read Int32Array from wasm
-  const readI32 = (ptr, len) => {
-    const out = new Int32Array(len);
-    for (let i = 0; i < len; i++) out[i] = M.HEAP32[(ptr >> 2) + i];
+    const h = M.HEAPF64;
+    for (let i = 0; i < len; i++) out[i] = h[(ptr >> 3) + i];
     return out;
   };
 
@@ -83,7 +77,7 @@ export async function solve(problem, options = {}) {
   const eval_f_cb = M.addFunction((n_arg, x_ptr, new_x, obj_ptr, ud) => {
     const xArr = readF64(x_ptr, n);
     const val = problem.eval_f(xArr);
-    H[obj_ptr >> 3] = val;
+    M.HEAPF64[obj_ptr >> 3] = val;
     return 1;
   }, "iiiiii");
 
@@ -91,7 +85,8 @@ export async function solve(problem, options = {}) {
   const eval_g_cb = M.addFunction((n_arg, x_ptr, new_x, m_arg, g_ptr, ud) => {
     const xArr = readF64(x_ptr, n);
     const gArr = problem.eval_g(xArr);
-    for (let i = 0; i < m; i++) H[(g_ptr >> 3) + i] = gArr[i];
+    const h = M.HEAPF64;
+    for (let i = 0; i < m; i++) h[(g_ptr >> 3) + i] = gArr[i];
     return 1;
   }, "iiiiiii");
 
@@ -99,14 +94,14 @@ export async function solve(problem, options = {}) {
   const eval_grad_f_cb = M.addFunction((n_arg, x_ptr, new_x, grad_ptr, ud) => {
     const xArr = readF64(x_ptr, n);
     const gfArr = problem.eval_grad_f(xArr);
-    for (let i = 0; i < n; i++) H[(grad_ptr >> 3) + i] = gfArr[i];
+    const h = M.HEAPF64;
+    for (let i = 0; i < n; i++) h[(grad_ptr >> 3) + i] = gfArr[i];
     return 1;
   }, "iiiiii");
 
   // eval_jac_g: (n, x_ptr, new_x, m, nele_jac, iRow_ptr, jCol_ptr, values_ptr, user_data) => bool
   const eval_jac_g_cb = M.addFunction((n_arg, x_ptr, new_x, m_arg, nele, iRow_ptr, jCol_ptr, vals_ptr, ud) => {
     if (vals_ptr === 0) {
-      // Structure request
       const s = problem.eval_jac_g(null, true);
       for (let i = 0; i < nele_jac; i++) {
         M.HEAP32[(iRow_ptr >> 2) + i] = s.iRow[i];
@@ -115,7 +110,8 @@ export async function solve(problem, options = {}) {
     } else {
       const xArr = readF64(x_ptr, n);
       const v = problem.eval_jac_g(xArr, false);
-      for (let i = 0; i < nele_jac; i++) H[(vals_ptr >> 3) + i] = v[i];
+      const h = M.HEAPF64;
+      for (let i = 0; i < nele_jac; i++) h[(vals_ptr >> 3) + i] = v[i];
     }
     return 1;
   }, "iiiiiiiiii");
@@ -132,7 +128,8 @@ export async function solve(problem, options = {}) {
       const xArr = readF64(x_ptr, n);
       const lambdaArr = readF64(lambda_ptr, m);
       const v = problem.eval_h(xArr, obj_factor, lambdaArr, false);
-      for (let i = 0; i < nele_hess; i++) H[(vals_ptr >> 3) + i] = v[i];
+      const h = M.HEAPF64;
+      for (let i = 0; i < nele_hess; i++) h[(vals_ptr >> 3) + i] = v[i];
     }
     return 1;
   }, "iiiidiiiiiiii");
@@ -161,15 +158,23 @@ export async function solve(problem, options = {}) {
   // Solve
   const status = M._ipopt_solve(ipopt, x, g, obj_val, mult_g, mult_x_L_ptr, mult_x_U_ptr);
 
+  // Re-read heap views after solve — memory may have grown, invalidating old views
+  const H2 = M.HEAPF64;
+  const readF64After = (ptr, len) => {
+    const out = new Float64Array(len);
+    for (let i = 0; i < len; i++) out[i] = H2[(ptr >> 3) + i];
+    return out;
+  };
+
   // Read results
   const result = {
-    x: readF64(x, n),
-    objective: H[obj_val >> 3],
+    x: readF64After(x, n),
+    objective: H2[obj_val >> 3],
     status,
-    constraints: readF64(g, m),
-    mult_g: readF64(mult_g, m),
-    mult_x_L: readF64(mult_x_L_ptr, n),
-    mult_x_U: readF64(mult_x_U_ptr, n),
+    constraints: readF64After(g, m),
+    mult_g: readF64After(mult_g, m),
+    mult_x_L: readF64After(mult_x_L_ptr, n),
+    mult_x_U: readF64After(mult_x_U_ptr, n),
   };
 
   // Cleanup
