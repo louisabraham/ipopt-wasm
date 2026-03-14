@@ -144,14 +144,14 @@ cp build/out/lib*.a dist/
 
 ### Performance
 
-On Hock-Schittkowski problem #71 (4 variables):
+Benchmarked on a discretized optimal control problem (see `test/bench.cpp`, `npm/bench.mjs`):
 
-| Platform | Time |
-|----------|------|
-| Native arm64 (Apple M4) | 5ms |
-| WebAssembly wasm32 (Node.js) | 43ms |
+| Problem size | Native arm64 | wasm32 | wasm64 |
+|---|---|---|---|
+| N=8000 (16k vars) | 72ms | 218ms | 188ms |
+| N=80000 (160k vars) | 533ms | OOM | 980ms |
 
-~9x overhead, dominated by startup/initialization on this small problem.
+WebAssembly overhead is ~2–3x vs native. The wasm32 build is limited to 4 GB; the wasm64 build (MEMORY64) has no memory limit.
 
 ## License
 

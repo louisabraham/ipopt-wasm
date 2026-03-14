@@ -1,17 +1,24 @@
 {
   "name": "ipopt-wasm",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Ipopt nonlinear optimizer for JavaScript via WebAssembly (includes MUMPS solver)",
   "type": "module",
   "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./index64.mjs": "./index64.mjs"
+  },
   "files": [
     "index.mjs",
     "ipopt.mjs",
     "ipopt.wasm",
+    "index64.mjs",
+    "ipopt64.mjs",
+    "ipopt64.wasm",
     "README.md"
   ],
   "scripts": {
-    "test": "node test.mjs"
+    "test": "node test.mjs && node test64.mjs"
   },
   "keywords": [
     "ipopt",

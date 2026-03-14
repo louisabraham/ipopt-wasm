@@ -147,18 +147,23 @@ Full list: [Ipopt options documentation](https://coin-or.github.io/Ipopt/OPTIONS
 Benchmarked on a discretized optimal control problem: minimize ∑u² subject to dynamics x_{i+1} = x_i + h·(x_i² + u_i), with x_0=1, x_N=0. See [`bench.mjs`](https://github.com/louisabraham/ipopt-wasm/blob/main/npm/bench.mjs) and [`test/bench.cpp`](https://github.com/louisabraham/ipopt-wasm/blob/main/test/bench.cpp).
 
 ```bash
-# Run the benchmark
-node bench.mjs 8000
+# Run the benchmarks
+node bench.mjs 8000       # wasm32
+node bench64.mjs 8000     # wasm64
 ```
 
-| Problem size | Platform | Time |
-|---|---|---|
-| HS071 (4 vars) | Native arm64 (Apple M4) | 5ms |
-| HS071 (4 vars) | WebAssembly (Node.js) | 43ms |
-| Optimal control N=8000 (16001 vars, 8001 constraints) | Native arm64 (Apple M4) | 72ms |
-| Optimal control N=8000 (16001 vars, 8001 constraints) | WebAssembly (Node.js) | 216ms |
+| Problem size | Native arm64 | wasm32 | wasm64 |
+|---|---|---|---|
+| N=8000 (16k vars) | 72ms | 218ms | 188ms |
+| N=80000 (160k vars) | 533ms | OOM | 980ms |
 
-WebAssembly overhead is **~3x** on compute-bound problems. The small-problem overhead (~9x) is dominated by wasm module initialization.
+The wasm32 build is limited to 4 GB of memory. For large problems, use the wasm64 build which has no memory limit:
+
+```javascript
+import { solve } from "ipopt-wasm/index64.mjs";
+```
+
+WebAssembly overhead is **~2–3x** vs native on compute-bound problems.
 
 ## License
 
