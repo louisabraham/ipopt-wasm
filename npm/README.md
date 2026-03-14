@@ -1,4 +1,4 @@
-# ipopt
+# ipopt-wasm
 
 [Ipopt](https://coin-or.github.io/Ipopt/) (Interior Point Optimizer) for JavaScript via WebAssembly. Solves large-scale nonlinear optimization problems. Includes the [MUMPS](http://mumps-solver.org/) sparse direct solver.
 
@@ -7,13 +7,13 @@ Works in **Node.js** and **browsers** — all objective functions and constraint
 ## Install
 
 ```bash
-npm install ipopt
+npm install ipopt-wasm
 ```
 
 ## Quick example
 
 ```javascript
-import { solve } from "ipopt";
+import { solve } from "ipopt-wasm";
 
 // Minimize x0*x3*(x0+x1+x2) + x2
 // subject to: x0*x1*x2*x3 >= 25, x0²+x1²+x2²+x3² = 40, 1 <= xi <= 5

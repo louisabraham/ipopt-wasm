@@ -1,5 +1,5 @@
 {
-  "name": "ipopt",
+  "name": "ipopt-wasm",
   "version": "0.1.0",
   "description": "Ipopt nonlinear optimizer for JavaScript via WebAssembly (includes MUMPS solver)",
   "type": "module",
@@ -26,7 +26,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/louisabraham/ipopt-wasm"
+    "url": "git+https://github.com/louisabraham/ipopt-wasm.git"
   },
   "author": "Louis Abraham"
 }
